@@ -1,0 +1,56 @@
+swagger: '2.0'
+info:
+  description: Dsedupe Api details
+  version: 1.0.2
+  title: DedupeResponse
+  termsOfService: 'https://access.redhat.com/documentation/en-us/red_hat_jboss_fuse/6.2/html/apache_camel_development_guide/restservices-swagger'
+  contact:
+    name: test Api developed by Ashish
+host: '127.0.0.1:9902'
+basePath: /rest/CCA
+tags:
+  - name: orders2
+schemes:
+  - http
+paths:
+  /dedupe/dedupeResponse:
+    post:
+      tags:
+        - orders2
+      operationId: firsrest
+      parameters:
+        - name: Payload
+          description: Request Body
+          required: false
+          in: body
+          schema:
+            required:
+              - LeadNum
+              - RefReqstId
+            properties:
+              LeadNum:
+                type: string
+                example: "1839"
+              RefReqstId:
+                type: string
+                example: XXXXXXXXXXX
+        - name: esb-source
+          in: header
+          required: true
+          type: string
+        - name: esb-timestamp
+          in: header
+          required: true
+          type: string
+        - name: esb-txnid
+          in: header
+          required: true
+          type: string      
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      responses:
+       '200':
+        description: ""
+

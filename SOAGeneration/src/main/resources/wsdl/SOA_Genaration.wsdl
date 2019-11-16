@@ -1,0 +1,132 @@
+<wsdl:definitions
+	xmlns:apachesoap="http://xml.apache.org/xml-soap"
+	xmlns:impl="http://services" xmlns:intf="http://services"
+	xmlns:tns1="http://model" xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/"
+	xmlns:wsdlsoap="http://schemas.xmlsoap.org/wsdl/soap/"
+	xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+	targetNamespace="http://services">
+	<!-- WSDL created by Apache Axis version: 1.4 Built on Apr 22, 2006 (06:55:48 
+		PDT) -->
+	<wsdl:types>
+		<schema xmlns="http://www.w3.org/2001/XMLSchema"
+			elementFormDefault="qualified" targetNamespace="http://services">
+			<import namespace="http://model" />
+			<element name="getCCA_Report_Advance">
+				<complexType>
+					<sequence>
+						<element name="repId" type="xsd:string" />
+						<element name="p1" type="xsd:string" />
+						<element name="p2" type="xsd:string" />
+						<element name="p3" type="xsd:string" />
+						<element name="p4" type="xsd:string" />
+						<element name="p5" type="xsd:string" />
+						<element name="p6" type="xsd:string" />
+						<element name="p7" type="xsd:string" />
+						<element name="p8" type="xsd:string" />
+						<element name="p9" type="xsd:string" />
+						<element name="p10" type="xsd:string" />
+					</sequence>
+				</complexType>
+			</element>
+			<element name="getCCA_Report_AdvanceResponse">
+				<complexType>
+					<sequence>
+						<element name="getCCA_Report_AdvanceReturn"
+							type="tns1:MessageParam" />
+					</sequence>
+				</complexType>
+			</element>
+			<element name="getCCA_Report">
+				<complexType>
+					<sequence>
+						<element name="repId" type="xsd:string" />
+						<element name="prNo" type="xsd:string" />
+						<element name="fromDate" type="xsd:string" />
+						<element name="toDate" type="xsd:string" />
+						<element name="asOnDate" type="xsd:string" />
+						<element name="reportType" type="xsd:string" />
+						<element name="finYearDate" type="xsd:string" />
+						<element name="posRate" type="xsd:string" />
+					</sequence>
+				</complexType>
+			</element>
+			<element name="getCCA_ReportResponse">
+				<complexType>
+					<sequence>
+						<element name="getCCA_ReportReturn"
+							type="tns1:MessageParam" />
+					</sequence>
+				</complexType>
+			</element>
+		</schema>
+		<schema xmlns="http://www.w3.org/2001/XMLSchema"
+			elementFormDefault="qualified" targetNamespace="http://model">
+			<complexType name="MessageParam">
+				<sequence>
+					<element name="error" nillable="true" type="xsd:string" />
+					<element name="getReport_CCA" nillable="true"
+						type="xsd:string" />
+				</sequence>
+			</complexType>
+		</schema>
+	</wsdl:types>
+	<wsdl:message name="getCCA_Report_AdvanceRequest">
+		<wsdl:part element="impl:getCCA_Report_Advance"
+			name="parameters" />
+	</wsdl:message>
+	<wsdl:message name="getCCA_Report_AdvanceResponse">
+		<wsdl:part element="impl:getCCA_Report_AdvanceResponse"
+			name="parameters" />
+	</wsdl:message>
+	<wsdl:message name="getCCA_ReportRequest">
+		<wsdl:part element="impl:getCCA_Report" name="parameters" />
+	</wsdl:message>
+	<wsdl:message name="getCCA_ReportResponse">
+		<wsdl:part element="impl:getCCA_ReportResponse"
+			name="parameters" />
+	</wsdl:message>
+	<wsdl:portType name="RunReport">
+		<wsdl:operation name="getCCA_Report_Advance">
+			<wsdl:input message="impl:getCCA_Report_AdvanceRequest"
+				name="getCCA_Report_AdvanceRequest" />
+			<wsdl:output message="impl:getCCA_Report_AdvanceResponse"
+				name="getCCA_Report_AdvanceResponse" />
+		</wsdl:operation>
+		<wsdl:operation name="getCCA_Report">
+			<wsdl:input message="impl:getCCA_ReportRequest"
+				name="getCCA_ReportRequest" />
+			<wsdl:output message="impl:getCCA_ReportResponse"
+				name="getCCA_ReportResponse" />
+		</wsdl:operation>
+	</wsdl:portType>
+	<wsdl:binding name="RunReportSoapBinding"
+		type="impl:RunReport">
+		<wsdlsoap:binding style="document"
+			transport="http://schemas.xmlsoap.org/soap/http" />
+		<wsdl:operation name="getCCA_Report_Advance">
+			<wsdlsoap:operation soapAction="" />
+			<wsdl:input name="getCCA_Report_AdvanceRequest">
+				<wsdlsoap:body use="literal" />
+			</wsdl:input>
+			<wsdl:output name="getCCA_Report_AdvanceResponse">
+				<wsdlsoap:body use="literal" />
+			</wsdl:output>
+		</wsdl:operation>
+		<wsdl:operation name="getCCA_Report">
+			<wsdlsoap:operation soapAction="" />
+			<wsdl:input name="getCCA_ReportRequest">
+				<wsdlsoap:body use="literal" />
+			</wsdl:input>
+			<wsdl:output name="getCCA_ReportResponse">
+				<wsdlsoap:body use="literal" />
+			</wsdl:output>
+		</wsdl:operation>
+	</wsdl:binding>
+	<wsdl:service name="RunReportService">
+		<wsdl:port binding="impl:RunReportSoapBinding"
+			name="RunReport">
+			<wsdlsoap:address
+				location="http://172.17.6.96:9001/CCA_WSS_GETREPORT/services/RunReport" />
+		</wsdl:port>
+	</wsdl:service>
+</wsdl:definitions>

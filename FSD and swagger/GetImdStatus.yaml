@@ -1,0 +1,55 @@
+swagger: '2.0'
+info:
+  description: Webssserivce to get IMD status from CCA
+  version: 1.0.2
+  title: GetImdStatus
+  termsOfService: 'https://access.redhat.com/documentation/en-us/red_hat_jboss_fuse/6.2/html/apache_camel_development_guide/restservices-swagger'
+  contact:
+    name: test Api developed by Ashish
+host: 'localhost:9902'
+tags:
+  - name: /rest/CCA/IMD
+schemes:
+  - http
+paths:
+  /rest/CCA/IMD/getImdStatus:
+    post:
+      tags:
+        - /rest/CCA/IMD
+      parameters:
+        - name: Payload
+          description: Request Body
+          required: false
+          in: body
+          schema:
+            required:
+              - compCode
+              - propNo
+            properties:
+              compCode:
+                type: string
+                example: "LP/BC/P/19/12309"
+              propNo:
+                type: string
+                example: XYZaGpgD1v
+        - name: esb-source
+          in: header
+          required: true
+          type: string
+        - name: esb-timestamp
+          in: header
+          required: true
+          type: string
+        - name: esb-txnid
+          in: header
+          required: true
+          type: string      
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      responses:
+       '200':
+        description: store procedure response success/failure
+        
+          

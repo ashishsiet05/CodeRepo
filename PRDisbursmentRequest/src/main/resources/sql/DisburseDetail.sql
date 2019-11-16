@@ -1,0 +1,2 @@
+insert into NAVODAY_STAGING.TB_LOS_HL_DISBURSE_DTL (ESB_REF_NO,COMP_CODE,PROPOSAL_NO,DISBURSEMENT_NO,PAYMENT_SR_NO,PAYABLE_TO_TYPE,PAYABLE_TO_CODE,PAYABLE_TO_NAME,PAY_DATE,PAY_MODE_CODE,BANK_CODE,BRANCH_CODE,IFSC,MICR,AC_NO,REQUESTED_AMT,APPROVED_AMT,BPI_AMT)
+values (:#esbtxnid,:#compCd,:#propNo,:#disbursmntNo,:#pymntSrNo,:#payableToType,:#payableToCd,:#payableToNm,:#payDt,:#payModeCd,:#bankCd,:#bankBrnchCd,:#ifscCd,:#micr,:#bankAcntNo,:#reqstdAmnt,:#apprvdAmnt,:#bpiAmnt)

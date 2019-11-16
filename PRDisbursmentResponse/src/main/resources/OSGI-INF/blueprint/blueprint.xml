@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+	xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+	xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                    http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd                    http://camel.apache.org/schema/blueprint/cxf  http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd">
+	
+	<camelContext id="PRDisbursmentResponse"
+		streamCache="true" useMDCLogging="true"
+		xmlns="http://camel.apache.org/schema/blueprint">
+		<onException id="HandleException"
+			useOriginalMessage="true">
+			<exception>java.lang.Exception</exception>
+			<handled>
+				<constant>true</constant>
+			</handled>
+			<log id="onexceptionLog" message="Exception occured======${exception.message}" />
+		</onException>
+		<route id="PRDisbursmentResponseCan" startupOrder="1" autoStartup="false">
+			<from id="_from2" uri="timer://PRDisbursmentCancell?period={{DisbursmentResponseTimer}}" />
+			<setBody id="_setBody1">
+				<simple>{{PRDisbursmentResponseCanellQuery}}</simple>
+			</setBody>
+			<to id="callDB" uri="jdbc:CCAUATDBConnection" />
+			<log id="dbResponse" message="database Cancell response===============${body}" />
+			<choice>
+				<when>
+					<simple>${body} != '[]'</simple>
+					<setProperty id="CancellBodyID" propertyName="Original_Request">
+						<simple>${in.body}</simple>
+					</setProperty>
+					<to id="_to1" uri="direct:AccessToken" />
+					<setBody id="setDbBody">
+						<simple>${exchangeProperty.Original_Request}</simple>
+					</setBody>
+					<split id="splitdata">
+						<simple>${body}</simple>
+						<setHeader headerName="REQNO" id="reqnum">
+							<simple>${body[REQ_NO]}</simple>
+						</setHeader>
+						<setHeader headerName="Authorization"
+							id="_setHeaderAccesstoken">
+							<simple>${exchangeProperty.AccessToken}</simple>
+						</setHeader>
+						<setBody id="RequestINSbody">
+							<simple>{"requisitionNumber":"${body[REQ_NO]}","cancelDate":"${body[CANCEL_DATE]}","reason":"${body[REASON]}"}</simple>
+						</setBody>
+						<log id="logCanceReq" message="SME Cancell Request body =  ${body}" />
+						<to id="CallToLosCancell"
+							uri="{{PRDisbursmentResponse.LosEndpoint}}?throwExceptionOnFailure=false" />
+						<log id="ResponselogCancell" message="SME.ServiceApi Cancell response API============= ${body}" />
+						<when id="Cancellrepstatuscheck">
+							<jsonpath suppressExceptions="true">$[?(@.data == 'SUCCESS!')]</jsonpath>
+							<to id="ToUpdateTableCanell" uri="direct:updatetable" />
+						</when>
+					</split>
+				</when>
+				<otherwise>
+					<log id="CancellationEmptyBody"
+						message="database Cancellation response  in otherwise block ============= ${body}" />
+				</otherwise>
+			</choice>
+		</route>
+		<route id="PRDisbursmentResponseINS" startupOrder="2">
+			<from id="instruementfrom"
+				uri="timer://PRDisbursmentInstrument?period={{DisbursmentResponseTimer2}}&amp;delay=1s" />
+			<setBody id="instruementQuery">
+				<simple>{{PRDisbursmentResponseInstrument}}</simple>
+			</setBody>
+			<to id="callInstrumentDB" uri="jdbc:CCAUATDBConnection" />
+			<log id="dbinstrumentResponse"
+				message=" instrument response===============${body}" />
+			<choice>
+				<when>
+					<simple>${body} != '[]'</simple>
+					<setProperty id="Insoriginalbody" propertyName="Original_Request">
+						<simple>${in.body}</simple>
+					</setProperty>
+					<to id="ToAccess" uri="direct:AccessToken" />
+					<setBody id="OrgRequest">
+						<simple>${exchangeProperty.Original_Request}</simple>
+					</setBody>
+					<split id="Instrumentsplitdata">
+						<simple>${body}</simple>
+						<setHeader headerName="REQNO" id="Instrumentreqnum">
+							<simple>${body[REQ_NO]}</simple>
+						</setHeader>
+						<setProperty propertyName="Checkupdatetable">
+							<simple>INS</simple>
+						</setProperty>
+						<!--<setHeader headerName="Authorization"
+							id="setHeaderAuthorization">
+							<simple>${exchangeProperty.AccessToken}</simple>
+						</setHeader>-->
+						<setBody>
+							<simple>{"proposalNumber":"${body[PROPOSAL_NO]}","requisitionNumber":"${body[REQ_NO]}","voucherNumber":"${body[VOUCHER_NO]}","paymentInstrumentNumber":"${body[PAYMT_INSTRUMENT_NO]}","paymentInstrumentDate":"${body[PAYMT_INSTRUMENT_DATE]}"}</simple>
+						</setBody>
+						<log id="Instrumentbody" message="SME instrument  request =  ${body}" />
+						<to id="InstrumentCallToLos"
+							uri="{{InstruementCCAEndpoint}}?throwExceptionOnFailure=false" />
+						<log id="Instrumentresponse" message="SME.ServiceApi instrument response============= ${body}" />
+						<when id="Instrumentstatuscheck">
+							<jsonpath suppressExceptions="true">$[?(@.data == 'SUCCESS!')]</jsonpath>
+							<to id="InstrumentToUpdateTable" uri="direct:updatetable" />
+						</when>
+					</split>
+				</when>
+				<otherwise>
+					<log id="InstrumentEmptyBody" message="database instrument response  in otherwise block ============= ${body}" />
+				</otherwise>
+			</choice>
+		</route>
+		<route id="AccessTokenRoute" streamCache="true">
+			<from id="Accesstoken" uri="direct:AccessToken" />
+			<setHeader headerName="CamelHttpMethod" id="methodtype">
+				<constant>POST</constant>
+			</setHeader>
+			<setHeader headerName="Content-Type" id="contenttype">
+				<simple>application/json</simple>
+			</setHeader>
+			<setBody id="accesstokenbody">
+				<simple>{{AccessTokenRequest}}</simple>
+			</setBody>
+			<to id="CallAccesstokenApi"
+				uri="{{AccessToken.URI}}?throwExceptionOnFailure=false" />
+			<setProperty id="setPropertyAccessToken" propertyName="AccessToken">
+				<jsonpath resultType="java.lang.String"
+					suppressExceptions="true">$.data.access_token</jsonpath>
+			</setProperty>
+		</route>
+		<route id="update table">
+			<from id="updatetableenpoint" uri="direct:updatetable" />
+			<choice>
+				<when>
+					<simple>${exchangeProperty.Checkupdatetable} == 'INS'</simple>
+					<setBody>
+						<simple>Update NAVODAY_STAGING.TB_LOS_PAY_REQ_INSTRUMENT set PROCESSED_ON ='${date:now:dd-MMM-yy}' where REQ_NO='${header.REQNO}'</simple>
+					</setBody>
+				</when>
+				<otherwise>
+					<setBody id="updateQueryBody">
+						<simple>Update NAVODAY_STAGING.TB_LOS_CANCELLED_PAY_REQ set PROCESSED_ON ='${date:now:dd-MMM-yy}' where REQ_NO='${header.REQNO}'</simple>
+					</setBody>
+				</otherwise>
+			</choice>
+			<log id="updateQuery" message="update query = ${body}" />
+			<to id="updatetab" uri="jdbc:CCAUATDBConnection" />
+			<log id="recordupdated" message="record updated succesfully " />
+		</route>
+	</camelContext>
+</blueprint>

@@ -1,0 +1,2 @@
+insert into NAVODAY_STAGING.TB_LOS_HL_DISBURSE_HDR (ESB_REF_NO,COMP_CODE,PROPOSAL_NO,DISBURSEMENT_NO,TOTAL_DISBURSAL_AMT,EMI_PRE_EMI_FLAG,PROPOSED_EMI_AMT,MODE_CODE,ECS_START_DATE) 
+values (:#esbtxnid,:#compCd,:#propNo,:#disbursNo,:#dibursAmnt,:#emiPreFlag,:#propEmiAmnt,:#modeCd,:#ecsStrtDt)

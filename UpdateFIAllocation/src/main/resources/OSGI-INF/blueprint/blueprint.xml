@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                    http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd                    http://camel.apache.org/schema/blueprint/cxf  http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd">
+    <cm:property-placeholder persistent-id="POCConnections" update-strategy="reload"/>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="StagingConnection">
+        <property name="driverClassName" value="${Staging.DB.DriverClassName}"/>
+        <property name="url" value="${Staging.DB.Url}"/>
+        <property name="username" value="${Staging.DB.Username}"/>
+        <property name="password" value="${Staging.DB.Password}"/>
+         <property name="maxWait" value="${maxWait}"/>
+    </bean>
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="StagingConnection"/>
+    </bean>
+    <camelContext id="UpdateFIAllocation" streamCache="true"
+         xmlns="http://camel.apache.org/schema/blueprint" useMDCLogging="true">
+        <onException id="HandleException" useOriginalMessage="true">
+            <exception>java.lang.Exception</exception>
+            <handled>
+                <constant>true</constant>
+            </handled>
+			<!--<continued>
+           <constant>true</constant>
+          </continued>-->
+            <log id="_log3" message="Exception ======${exception.message}"/>
+        </onException>
+        <route id="updateallcationroute" streamCache="true">
+            <from id="_from2" uri="timer://UpdateFIallcation?period={{UpdateFITimer}}"/>
+            <setBody id="_setBody1">
+                <simple>{{SQLPollQuery}}</simple>
+            </setBody>
+            <to id="_from1" uri="jdbc:StagingConnection"/>
+            <log id="_log1" message="database response============= ${body}"/>
+            <setProperty id="_setProperty3" propertyName="Original_Request">
+                <simple>${in.body}</simple>
+            </setProperty>
+            <to id="_to1" uri="direct:AccessToken"/>
+            <setBody id="_setBody10">
+                <simple>${exchangeProperty.Original_Request}</simple>
+            </setBody>
+            <removeHeaders id="_removeHeaders1" pattern="*"/>
+            <setHeader headerName="CamelHttpMethod" id="_setHeader2">
+                <constant>POST</constant>
+            </setHeader>
+            <setHeader headerName="Content-Type" id="Bodycontent">
+                <simple>application/json</simple>
+            </setHeader>
+            <split id="_split1">
+                <simple>${body}</simple>
+                <setHeader headerName="divCd" id="_setHeader5">
+                    <simple>${body[DIVISION_CODE]}</simple>
+                </setHeader>
+                <setHeader headerName="batchNo" id="_setHeader5">
+                    <simple>${body[BATCH_NO]}</simple>
+                </setHeader>
+                <setHeader headerName="enqNo" id="_setHeader6">
+                    <simple>${body[ENQ_NO]}</simple>
+                </setHeader>
+                <setHeader headerName="slNo" id="_setHeader7">
+                    <simple>${body[SL_NO]}</simple>
+                </setHeader>
+                <setHeader headerName="saleCode" id="_setHeader8">
+                    <simple>${body[SALESMAN_CODE]}</simple>
+                </setHeader>
+                <choice id="_choice1">
+                    <when id="_when2">
+                        <simple>${body[DIVISION_CODE]} == '{{SMEDivcode}}'</simple>
+                        <setHeader headerName="Authorization" id="_setHeader3">
+                            <simple>${exchangeProperty.AccessToken}</simple>
+                        </setHeader>
+                        <setBody id="_setBody2">
+                            <simple>{"batchNo":${body[BATCH_NO]},"searialNo":"${body[SL_NO]}","leadId":"${body[ENQ_NO]}","foId":"${body[SALESMAN_CODE]}"}</simple>
+                        </setBody>
+                        <log id="_log2" message="SME request =  ${body}"/>
+                        <to id="CallToLos" uri="{{UpdateFIAllocation.LosEndpoint}}?throwExceptionOnFailure=false"/>
+                        <log id="_log3" message="SME.ServiceApi response============= ${body}"/>
+                        <when id="statuscheck">
+                            <jsonpath suppressExceptions="true">$[?(@.status == '200')]</jsonpath>
+                            <to id="_to2" uri="direct:updatetable"/>
+                        </when>
+                    </when>
+                    <when id="_when3">
+                        <simple>${body[DIVISION_CODE]} == '{{HFCDivcode}}'</simple>
+                        <setHeader headerName="auth-key" id="_setHeader5">
+                            <simple>abc123efg</simple>
+                        </setHeader>
+                        <!-- <setHeader headerName="los-txnid" id="los-txn">
+                            <simple>ESB-${date:now:yyyyMMddhhmmss}</simple>
+                        </setHeader> -->
+                        <setHeader headerName="los-source" id="_setHeader5">
+                            <simple>devone</simple>
+                        </setHeader>
+                        <setBody id="_setBody2">
+                            <simple>{"batch_no": "${body[BATCH_NO]}","loan_app_id": "${body[ENQ_NO]}","serial_no": "${body[SL_NO]}","sales_man_code":"${body[SALESMAN_CODE]}"}</simple>
+                        </setBody>
+                        <log id="_log4" message="HFC request =  ${body}"/>
+                        <to id="CallToHfc" uri="{{UpdateHFCEndpoint}}?throwExceptionOnFailure=false"/>
+                        <log id="_log5" message="HFC.ServiceApi response============= ${body}"/>
+                        <when id="statuscheck">
+                            <jsonpath suppressExceptions="true">$[?(@.status == 'Success')]</jsonpath>
+                            <to id="updatetable" uri="direct:updatetable"/>
+                        </when>
+                    </when>
+                    <otherwise>
+                     <log id="_log4" message="Invalid Division Number ===${body[DIVISION_CODE]}"/>
+                    </otherwise>
+                </choice>
+            </split>
+        </route>
+        <route id="AccessTokenRoute" streamCache="true">
+            <from id="_from119" uri="direct:AccessToken"/>
+            <removeHeaders id="_removeHeaders2" pattern="*"/>
+            <setHeader headerName="CamelHttpMethod" id="_setHeader4">
+                <constant>POST</constant>
+            </setHeader>
+            <setHeader headerName="Content-Type" id="_setHeader1">
+                <simple>application/json</simple>
+            </setHeader>
+            <setBody id="_setBody3">
+                <simple>{{AccessTokenRequest}}</simple>
+            </setBody>
+            <to id="_to22" uri="{{AccessToken.URI}}?throwExceptionOnFailure=false"/>
+            <setProperty id="_setProperty31" propertyName="AccessToken">
+                <jsonpath resultType="java.lang.String" suppressExceptions="true">$.data.access_token</jsonpath>
+            </setProperty>
+        </route>
+        <route id="update table">
+            <from id="_from3" uri="direct:updatetable"/>
+            <setBody id="_setBody4">
+                <simple>Update vw_fi_request set reallocation_flag = 'N' where BATCH_NO='${header.batchNo}' AND ENQ_NO='${header.enqNo}' AND SL_NO='${header.slNo}' AND SALESMAN_CODE='${header.saleCode}'</simple>
+            </setBody>
+            <log id="_log8" message="update query = ${body}"/>
+            <to id="updatetab" uri="jdbc:StagingConnection"/>
+            <log id="_log9" message="record updated succesfully "/>
+        </route>
+    </camelContext>
+</blueprint>

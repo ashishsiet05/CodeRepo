@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd               http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd               http://camel.apache.org/schema/blueprint/cxf  http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd">
+    <cm:property-placeholder persistent-id="CRIFConnection" update-strategy="reload"/>
+    <!-- Rest Service Endpoint -->
+    <cxf:rsServer address="${ReceiveLOSQSRRequest}"
+        id="FetchQSRReportRestEndpoint" serviceClass="com.magma.fetchQSR.FetchQSRRestService"/>
+    <!-- Bean Declaration -->
+    <bean class="com.magma.fetchQSR.QSRRequestProcessor" id="QSRRequestProcessor"/>
+    <bean class="com.magma.fetchQSR.ErrorAcknowledger" id="ErrorAckProcessor"/>
+    <bean class="com.magma.fetchQSR.GetLog" id="getlog"/>
+    <!-- Camel Context Implementation -->
+    <camelContext id="FetchQSR" xmlns="http://camel.apache.org/schema/blueprint" useMDCLogging="true">
+        <!-- Data Formats Declaration -->
+        <dataFormats>
+            <json id="json" library="Jackson"/>
+            <xmljson elementName="resp"
+                expandableProperties="General ApplcntDtls Score"
+                forceTopLevelObject="true" id="jsonxmlWithOptions"
+                removeNamespacePrefixes="true" rootName="Request"
+                skipNamespaces="true" trimSpaces="true"/>
+            <xmljson elementName="resp"
+                expandableProperties="Envelope Body executeResponse executeReturn"
+                forceTopLevelObject="true" id="jsonxmlWithoutOptions"
+                removeNamespacePrefixes="true" rootName="Response"
+                skipNamespaces="true" trimSpaces="true"/>
+            <xmljson elementName="LosResponse"
+                expandableProperties="General QSRRslt ApplcntDtls"
+                forceTopLevelObject="false" id="LosResponse"
+                removeNamespacePrefixes="true" skipNamespaces="true" trimSpaces="true"/>
+        </dataFormats>
+        <route autoStartup="true" id="FetchQSRRoute" startupOrder="1">
+            <!-- Exception Handling -->
+            <from id="fetchQSRRequest" uri="cxfrs:bean:FetchQSRReportRestEndpoint"/>
+            <setProperty id="SReq" propertyName="requestType">
+                <simple>Source Request</simple>
+            </setProperty>
+            <setProperty id="Propertyesbtxnid" propertyName="esbtxnid">
+                <simple>${header.esb-txnid}</simple>
+            </setProperty>
+            <setProperty id="Propertyesbsource" propertyName="esbsource">
+                <simple>${header.esb-source}</simple>
+            </setProperty>
+            <to id="logSReq" pattern="InOnly" uri="seda:fetchQSRLog"/>
+            <to id="validateheader" uri="direct-vm:processHeader"/>
+            <choice id="headerProcessing">
+                <when id="Missingheader">
+                    <simple>${header.Error} == 'MissingHeader'</simple>
+                    <log id="missingHeader" message="Fetch QSR header is missing"/>
+                </when>
+                <otherwise id="SuccessPath">
+                    <setProperty id="setESBTxnid" propertyName="esbtxnid">
+                        <simple>${in.header.esb-txnid}</simple>
+                    </setProperty>
+                    <unmarshal id="UnmarshalLosRequest" ref="jsonxmlWithOptions"/>
+                    <to id="TransformLosToQSR" uri="xslt:./XSLT/QSRReqeust.xsl"/>
+                    <setProperty id="TReq" propertyName="requestType">
+                        <simple>Target Request</simple>
+                    </setProperty>
+                    <removeHeaders id="removeHeaders" pattern="*"/>
+                    <setProperty id="setCDATARequest" propertyName="CDATARequest">
+                        <simple>${body}</simple>
+                    </setProperty>
+                    <process id="ProcessQSRRequest" ref="QSRRequestProcessor"/>
+                    <setHeader headerName="HTTP_METHOD" id="setHttpMethod">
+                        <constant>POST</constant>
+                    </setHeader>
+                    <setHeader headerName="CONTENT_TYPE" id="setContentType">
+                        <constant>text/xml</constant>
+                    </setHeader>
+                    <convertBodyTo charset="utf-8"
+                        id="convertByteStream" type="java.lang.byte[]"/>
+                    <setProperty id="TReq" propertyName="requestType">
+                        <simple>Target Request</simple>
+                    </setProperty>
+                    <to id="logTReq" pattern="InOnly" uri="seda:fetchQSRLog"/>
+                    <multicast id="LogRequest">
+                        <to id="callQSRService" pattern="InOut" uri="{{FetchQsrEndPoint}}"/>
+                    </multicast>
+                    <convertBodyTo id="convertQSRResponseToString" type="java.lang.String"/>
+                    <setProperty id="TResp" propertyName="requestType">
+                        <simple>Target Response</simple>
+                    </setProperty>
+                    <to id="logTResp" pattern="InOnly" uri="seda:fetchQSRLog"/>
+                    <marshal id="marshal_Response" ref="jsonxmlWithoutOptions"/>
+                    <setHeader headerName="ErrorCode" id="setErrorCode">
+                        <jsonpath>$.Envelope.Body.executeResponse.executeReturn.errorCode</jsonpath>
+                    </setHeader>
+                    <setBody id="setStrategyOneReponseBody">
+                        <jsonpath>$.Envelope.Body.executeResponse.executeReturn.message</jsonpath>
+                    </setBody>
+                    <choice id="_choice1">
+                        <when id="StrategyOneError">
+                            <simple>${in.header.ErrorCode} != 0 </simple>
+                            <to id="TransformQSRToLOSError" uri="xslt:./XSLT/LosErrorResponse.xsl"/>
+                        </when>
+                        <otherwise id="StrategyOneSuccess">
+                            <to id="TransformQSRToLOSSuccess" uri="xslt:./XSLT/LosResponse.xsl"/>
+                        </otherwise>
+                    </choice>
+                    <marshal id="marshal_LosResponse" ref="LosResponse"/>
+                    <convertBodyTo id="convertToString" type="java.lang.String"/>
+                    <setProperty id="SResp" propertyName="requestType">
+                        <simple>Source Response</simple>
+                    </setProperty>
+                    <setHeader headerName="ResponseStatus" id="succses">
+                        <simple>Success</simple>
+                    </setHeader>
+                    <to id="logSResp" pattern="InOnly" uri="seda:fetchQSRLog"/>
+                </otherwise>
+            </choice>
+            <onException id="HandleException" useOriginalMessage="true">
+                <exception>java.lang.Exception</exception>
+                <handled>
+                    <constant>true</constant>
+                </handled>
+                <setProperty id="_setProperty1" propertyName="ErrorOccured">
+                    <constant>yes</constant>
+                </setProperty>
+                <setProperty id="setExpMsg" propertyName="ExpMsg">
+                    <simple>${exception.message}</simple>
+                </setProperty>
+                <process id="processErrorResp" ref="ErrorAckProcessor"/>
+                <marshal id="MarshalErrorResponse">
+                    <json library="Jackson" prettyPrint="true"/>
+                </marshal>
+                <convertBodyTo id="ErrorReponse" type="java.lang.String"/>
+                <setProperty id="SEResp" propertyName="requestType">
+                    <simple>Source Response</simple>
+                </setProperty>
+                <setHeader headerName="ResponseStatus" id="succses">
+                    <simple>Failure</simple>
+                </setHeader>
+                <to id="logSEResp" pattern="InOnly" uri="seda:fetchQSRLog"/>
+            </onException>
+        </route>
+        <!-- Logger Route -->
+        <route id="loggerRoute">
+            <from id="GetLogRequest" uri="seda:fetchQSRLog"/>
+            <setBody id="setLogBody">
+                <simple>{"txnid":"${exchangeProperty.esbtxnid}","source":"${exchangeProperty.esbsource}","timestamp":"${date:now:dd-yyyy-MM HH-mm-ss}","type":"${exchangeProperty.requestType}","payload":${body},"status":"${header.ResponseStatus}"}</simple>
+            </setBody>
+            <!--  <bean id="CallLoggerBean" method="getLog('${body}')" ref="getlog"/> -->
+            <log id="_log2" message="${body}"/>
+        </route>
+    </camelContext>
+</blueprint>

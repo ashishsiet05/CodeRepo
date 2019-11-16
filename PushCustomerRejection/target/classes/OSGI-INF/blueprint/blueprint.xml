@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Copyright 2014-2017, Red Hat, Inc. and/or its affiliates, and individual
+    contributors by the @authors tag. 
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+-->
+<!--
+   This is the OSGi Blueprint XML file defining the Camel context and routes.  Because the file is in the
+   OSGI-INF/blueprint directory inside our JAR, it will be automatically activated as soon as the bundle is installed.
+
+   The root element for any OSGi Blueprint file is 'blueprint' - you also see the namespace definitions for both the Blueprint
+   and the Camel namespaces.
+-->
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+	xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+	xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd     
+    http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd     
+    http://camel.apache.org/schema/blueprint/cxf  http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd">
+    <!--
+      The namespace for the camelContext element in Blueprint is 'https://camel.apache.org/schema/blueprint'. Additionally,
+      we can also define namespace prefixes we want to use them in the XPath expressions in our CBR.
+
+      While it is not required to assign id's to the <camelContext/> and <route/> elements, it is a good idea
+      to set those for runtime management purposes (logging, JMX MBeans, ...)
+    -->
+    
+     <cm:property-placeholder
+		persistent-id="CCAConnection" update-strategy="reload"/>
+	<!-- Rest server declaration -->
+	<cxf:rsServer address="${ReceiveCustomerRejectionRequest}"
+		id="CustomerRejectionRestEndpoint"
+		serviceClass="com.magma.pushCustomerRejection.CustomerRejectionRestService" />
+		
+	<!-- Database Connection declaration -->	
+	<bean class="org.apache.commons.dbcp.BasicDataSource" destroy-method="close" id="CCAUATDBConnection">
+		<property name="driverClassName" value="oracle.jdbc.driver.OracleDriver" />
+		<property name="url" value="${CCAJDBCURL}" />
+		<property name="username" value="${Username}" />
+		<property name="password" value="${Password}" />
+		<property name="validationQuery" value="select 1 from dual" />
+		<property name="testOnBorrow" value="true" />
+	</bean>
+	<!-- configure the Camel SQL component to use the JDBC data source -->
+	<bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+		<property name="dataSource" ref="CCAUATDBConnection" />
+	</bean>
+	<!-- Transaction Manager Beans -->
+    <bean class="org.springframework.jdbc.datasource.DataSourceTransactionManager" id="txManager">
+        <property name="dataSource" ref="CCAUATDBConnection"/>
+    </bean>
+    <bean id="TransBean" class="org.apache.camel.spring.spi.SpringTransactionPolicy">
+    	<property name="transactionManager" ref="txManager"/>
+     	<property name="propagationBehaviorName" value="PROPAGATION_REQUIRED"/> 
+    </bean>
+    
+    <bean class="com.magma.pushCustomerRejection.ErrorAcknowledger" id="ErrorAckProcessor" />
+    
+    
+    
+    <camelContext id="CustomerRejectionContext" xmlns="http://camel.apache.org/schema/blueprint">
+    
+    	<dataFormats>
+        	<json id="json" library="Jackson" />
+        </dataFormats>
+    	
+        <route id="CustomerRejectionRoute" autoStartup="true" startupOrder="1">
+        	<from id="ReceiveCustRejRequest" uri="cxfrs:bean:CustomerRejectionRestEndpoint" />
+        	<transacted id="transacteddb" ref="TransBean"/>
+			<setHeader headerName="esbtxnid" id="SetHeadertxnid">
+                <simple>${header.esb-txnid}</simple>
+            </setHeader>
+            <setProperty propertyName="esbtxnid" id="SetPropertytxnid">
+                <simple>${header.esb-txnid}</simple>
+            </setProperty>
+        	<unmarshal ref="json" id="UnmarshalRequest" />
+        	<setHeader headerName="compCd" id="setCompCode">
+            	<simple>${body[rejEnquiryDetails][compCd]}</simple>
+            </setHeader>
+            <setHeader headerName="enqNo" id="setEnqNo">
+            	<simple>${body[rejEnquiryDetails][enqNo]}</simple>
+            </setHeader>
+            <setHeader headerName="proposalNo" id="setProposalNo">
+            	<simple>${body[rejEnquiryDetails][enqNo]}</simple>
+            </setHeader> 
+        	<setHeader headerName="rejPartiesDemoDtls" id="setRejPartiesDemoDtls">
+        		<simple>${body[rejPartiesDemoDtls]}</simple>
+        	</setHeader>
+        	<setHeader headerName="rejPartiesAddressDtls" id="setRejPartiesAddressDtls">
+        		<simple>${body[rejPartiesAddressDtls]}</simple>
+        	</setHeader>
+        	<setHeader headerName="rejPartiesIdDtls" id="setRejPartiesIdDtls">
+        		<simple>${body[rejPartiesIdDtls]}</simple>
+        	</setHeader>
+        	<setHeader headerName="rejReasonDtls" id="setRejResonDtls">
+        		<simple>${body[rejReasonDtls]}</simple>
+        	</setHeader>
+        	
+        	<!--  Process to insert data in Reject Enquiry -->
+        	
+        	<setBody>
+        		<simple>${body[rejEnquiryDetails]}</simple>
+        	</setBody>
+        	<to id="InsertRejEnquiry" uri="sql:INSERT INTO NAVODAY_STAGING.TB_LOS_REJ_ENQUIRY (ESB_REF_NO, COMP_CODE, ZONE_CODE, REGION_CODE, 
+        	BRANCH_CODE, LOCATION_CODE, DIVISION_CODE, SUB_DIVISION_CODE, ENQ_NO, ENQ_DATE, SCHEME_CODE, PROMOTION_CODE, ENQ_SOURCE_CODE, 
+        	SOURCE_AGENT_CODE, SOURCE_AGENT_NAME, CONTACT_PERSON, CONTACT_PERSON_DEISG, REQD_AMT, QUOTED_IRR, ENQ_END_USE_CODE, REFERRAL, 
+        	CUST_TYPE, SALESMAN_CODE, TEAM_LEADER_CODE, PROPOSAL_TYPE_CODE, INDUSTRY_CLASS_CODE, COMPANY_TYPE_CODE, CUSTOMER_CATEGORY_CODE, 
+        	BASE_PROPOSAL_NO) 
+        	VALUES (:#esbtxnid, :#compCd, :#zoneCd, :#regionCd, :#branchCd, :#locationCd, :#divisionCd, :#subDivCd, :#enqNo, TO_DATE(:#enqDt, 'DD-MM-YY'),
+        	:#schemeCd,:#promotnCd, :#enqSrcCd, :#sourceAgntCd, :#sourceAgntName, :#cntctPrsn, :#cntctPrsnDesig, :#reqdAmnt, :#quotedIrr, 
+        	:#enqEndUseCd, :#referral, :#custType, :#salesmanCd, :#tlCd, :#propTypeCd, :#industryClassCd, :#cmpnyTypeCd, :#custCat, :#basePropNo)?dataSource=CCAUATDBConnection&amp;transacted=true" />
+        	        	
+        	<log message="Record in reject enquiry  added successfully" />
+        	
+        	<!-- Process to insert data in Reject party demo details -->
+        	
+        	<setBody id="setRejDemoDetails">
+        		<simple>${in.header.rejPartiesDemoDtls}</simple>
+        	</setBody>
+        	<split id="splitRejDemoDtls" stopOnException="true">
+        		<simple>${body}</simple>
+        		<to id="insertRejPartyDemoDtls" uri="sql:INSERT INTO NAVODAY_STAGING.TB_LOS_REJ_PARTIES_DEMO_DTL (ESB_REF_NO, COMP_CODE, ENQ_NO, 
+        		HCG_TYPE, PARTY_CODE, PARTY_NAME, FATHER_HUSBAND, NAME_OF_SPOUSE, APPL_DATE_OF_BIRTH, APPL_SEX, APPL_MARITAL_STATUS, 
+        		NO_DEPENDANTS, APPL_QUAL_CODE, PAN_GIR_NO, CONSTITUTION_CODE, NATIONALITY, FORM60_RECEIVED, CUSTOMER_RELATION, RELATION_CODE, 
+        		RELATION_TYPE, CASTE_CODE, RELIGION_CODE, UCIC_VALUE)
+        		VALUES (:#esbtxnid, :#compCd, :#enqNo, :#hcgType, :#partyCd, :#partyNm, :#fatherOrHusbnd, :#spouseName, TO_DATE(:#appliDOB, 'DD-MM-YY'), 
+        		:#aapliSex, :#aapliMaritalStatus, :#noDependts, :#appliQaulCd, :#panGirNo, :#constiCd, :#nationality, :#form60Rcvd, :#custRltn,
+        		:#relatnCd, :#relatnType, :#castCd, :#religionCd, :#ucicValue)?dataSource=CCAUATDBConnection&amp;transacted=true" />
+        	</split>
+        	<log message="Records in Reject Party Demographic details added successfully" />
+        	
+        	<!-- Process to insert reject party address details -->
+        	
+        	<setBody id="setRejAddressDetails">
+        		<simple>${in.header.rejPartiesAddressDtls}</simple>
+        	</setBody>
+        	<split id="splitRejAddressDtls" stopOnException="true">
+        		<simple>${body}</simple>
+        		<to id="insertRejPartyAddressDemoDtls" uri="sql:INSERT INTO NAVODAY_STAGING.TB_LOS_REJ_PARTIES_ADDRESS_DTL (ESB_REF_NO, COMP_CODE, 
+        		ENQ_NO, PARTY_CODE, ADDRESS_TYPE, ADDRESS, LOCATION_CODE, CITY_CODE, PIN, LANDMARK, LOCALITY_CODE, LOCALITY_TYPE_CODE, 
+        		RESI_STATUS_CODE, RESI_TYPE_CODE, RESI_SINCE, TELE1, CONTACT_MOBILE, EMAIL) 
+        		VALUES (:#esbtxnid, :#compCd, :#enqNo, :#partyCd, :#addrssType, :#addrss, :#locatnCd, :#cityCd, :#pin, :#lndmrk, :#localityCd, 
+        		:#localityTypeCd, :#resiStatusCd, :#resiTypeCd, :#resiSince, :#tele1, :#cntctMob, :#email)?dataSource=CCAUATDBConnection&amp;transacted=true" />
+        	</split>
+        	<log message="Records in Reject Party Address details added successfully" />
+        	
+        	<!-- Process to add records in Reject Party ID Details -->
+        	
+        	<setBody id="setRejIDDetails">
+        		<simple>${in.header.rejPartiesIdDtls}</simple>
+        	</setBody>
+        	<split id="splitRejIdDtls" stopOnException="true">
+        		<simple>${body}</simple>
+        		<to id="insertRejPartyIdDtls" uri="sql:INSERT INTO NAVODAY_STAGING.TB_LOS_REJ_PARTIES_ID_DTL (ESB_REF_NO, COMP_CODE, ENQ_NO, 
+        		PARTY_CODE, ID_TYPE_CODE, ID_NO, ISSUE_DATE, EXPIRE_DATE, ISSUING_AUTHORITY, REMARKS)
+        		VALUES (:#esbtxnid, :#compCd, :#enqNo,:#partyCd, :#idTypeCd, :#idNo, TO_DATE(:#issueDate, 'DD-MM-YY'), TO_DATE(:#expDt, 'DD-MM-YY'), 
+        		:#issuingAuth, :#remarks)?dataSource=CCAUATDBConnection&amp;transacted=true" />
+        	</split>
+        	<log message="Records in reject Party ID details added successfully" />
+        	
+        	<!-- Process to insert data into Reject Reason Details -->	
+        	
+        	<setBody id="setRejReasonDtls">
+        		<simple>${in.header.rejReasonDtls}</simple>
+        	</setBody>
+        	<split id="splitRejResonDtls" stopOnException="true">
+        		<simple>${body}</simple>
+        		<to id="insertRejReasonDtls" uri="sql:INSERT INTO NAVODAY_STAGING.TB_LOS_ENQ_REJ_REASON_DTL (ESB_REF_NO, COMP_CODE, ENQ_NO, 
+        		SL_NO, REASON_CODE)
+        		VALUES (:#esbtxnid, :#compCd, :#enqNo, :#slNo, :#reasonCd)?dataSource=CCAUATDBConnection&amp;transacted=true" />
+        	</split>
+        	<log message="Records in Reject Reason  details added successfully" />
+        	
+        	<setBody id="responseBody">
+            	<simple>{"txnid":"${in.header.esbtxnid}","status":"Customer Rejection Data Added Successfully"}</simple>
+            </setBody>
+        	
+        	<onException id="HandleException" useOriginalMessage="true">
+                <exception>java.lang.Exception</exception>
+                <handled>
+                    <constant>true</constant>
+                </handled>
+                <log id="LogDBError" message=" Push All Customer Data Error occured while processing request is ${exception.message} for the operation ${in.header.OperationName}"/>
+                <setProperty id="_setProperty1" propertyName="ErrorOccured">
+                    <constant>yes</constant>
+                </setProperty>
+                <setProperty id="setExpMsg" propertyName="ExpMsg">
+                    <simple>${exception.message}</simple>
+                </setProperty>
+                <process id="processErrorResp" ref="ErrorAckProcessor"/>
+                <marshal id="MarshalErrorResponse">
+                    <json library="Jackson" prettyPrint="true"/>
+                </marshal>
+                <convertBodyTo id="ErrorReponse" type="java.lang.String"/>
+                <rollback id="rollback" markRollbackOnly="true" message="transaction was rollback successfully"/>
+            </onException>
+        	
+        	
+        </route>
+    </camelContext>
+</blueprint>

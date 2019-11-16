@@ -1,0 +1,1 @@
+insert into NAVODAY_STAGING.TB_LOS_PAY_REQ_OTH_ADJ (ESB_REF_NO,COMP_CODE,PROPOSAL_NO,REQ_NO,CHARGE_CODE,CHARGE_DESC,ADJ_AMT,ADJ_PROPOSAL_NO) values (:#esbtxnid,:#compCd,:#propNo,:#reqNo,:#chargeCd,:#chargeDesc,:#adjAmnt,:#adjPropNo)

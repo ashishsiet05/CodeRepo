@@ -1,0 +1,29 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.magma.fincorp</groupId>
+    <artifactId>multi</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>multi</name>
+    <modules>
+	    <module>CommaonHeaderValidation</module>
+		<module>customerDeDupeRequest</module>
+		        <module>customerDeDupeResponse</module>
+        <module>fetchExistingCustomer</module>
+		        <module>fetchQSRReport</module>
+        <module>GetForeClosureCharges</module>
+		        <module>getimdstatus</module>
+        <module>LoanCancelationRequest</module>
+		 <module>LoanCancelationtStatus</module>
+		 <module>LOSFIAllocation</module>
+		 <module>LosProcessBRE</module>
+		 <module>UpdateForeClosureCharges</module>
+        <module>PRCancelationRequestStatus</module>
+		        <module>PRDisbursmentRequest</module>
+        <module>pushAllCustomerData</module>
+		        <module>SOAGeneration</module>
+        <module>SubLedgerCreation</module>
+		        <module>UpdateDocumentStatus</module>
+        <module>UpdateFIAllocation</module>
+    </modules>
+</project>

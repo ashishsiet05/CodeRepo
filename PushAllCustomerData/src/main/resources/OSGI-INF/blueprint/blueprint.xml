@@ -1,0 +1,476 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd          http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd          http://camel.apache.org/schema/blueprint/cxf  http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd">
+    <cm:property-placeholder persistent-id="CCAConnection" update-strategy="reload"/>
+    <!-- Rest server declaration -->
+    <cxf:rsServer address="${ReceivePushAllDataRequest}"
+        id="CustomerDataRestEndpoint" serviceClass="com.magma.pushCustomerData.CustomerDataRestService"/>
+    <!-- Database Connection declaration -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="CCAUATDBConnection">
+        <property name="driverClassName" value="oracle.jdbc.driver.OracleDriver"/>
+        <property name="url" value="${CCAJDBCURL}"/>
+        <property name="username" value="${Username}"/>
+        <property name="password" value="${Password}"/>
+        <property name="validationQuery" value="select 1 from dual"/>
+        <property name="testOnBorrow" value="true"/>
+    </bean>
+    <!-- configure the Camel SQL component to use the JDBC data source -->
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="CCAUATDBConnection"/>
+    </bean>
+    <!-- Transaction Manager Beans -->
+    <bean
+        class="org.springframework.jdbc.datasource.DataSourceTransactionManager" id="txManager">
+        <property name="dataSource" ref="CCAUATDBConnection"/>
+    </bean>
+    <bean class="org.apache.camel.spring.spi.SpringTransactionPolicy" id="TransBean">
+        <property name="transactionManager" ref="txManager"/>
+        <property name="propagationBehaviorName" value="PROPAGATION_REQUIRED"/>
+    </bean>
+    <bean class="com.magma.pushCustomerData.ErrorAcknowledger" id="ErrorAckProcessor"/>
+    <camelContext id="PushAllCustomerData" useMDCLogging="true" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <json id="json" library="Jackson"/>
+        </dataFormats>
+        <route autoStartup="true" id="PushAllCustomerDataRoute" startupOrder="1">
+            <from id="ReceiveCustomerRequest" uri="cxfrs:bean:CustomerDataRestEndpoint"/>
+            <transacted id="transacteddb" ref="TransBean"/>
+            <to id="validateheader" uri="direct-vm:processHeader"/>
+            <choice id="headerProcessing">
+                <when id="Missingheader">
+                    <simple>${header.Error} == 'MissingHeader'</simple>
+                    <log id="missingHeader" message=" Push All Customer Data Missisng header block"/>
+                </when>
+                <otherwise id="SuccessPath">
+                    <setHeader headerName="esbtxnid" id="SetHeadertxnid">
+                        <simple>${header.esb-txnid}</simple>
+                    </setHeader>
+                    <setProperty id="SetPropertytxnid" propertyName="esbtxnid">
+                        <simple>${header.esb-txnid}</simple>
+                    </setProperty>
+                    <setHeader headerName="requestType" id="Targetreq">
+                        <simple>Source Request</simple>
+                    </setHeader>
+                    <to id="_to1" pattern="InOnly" uri="seda:PushCustmerLog"/>
+                    <unmarshal id="UnmarshalRequest" ref="json"/>
+                    <!--  <bean ref="checkmandate" method="checkmandate"></bean> -->
+                    <setHeader headerName="compCode" id="setCompCode">
+                        <simple>${body[enquiryDetails][compCd]}</simple>
+                    </setHeader>
+                    <setHeader headerName="enqNo" id="setEnqNo">
+                        <simple>${body[enquiryDetails][enqNo]}</simple>
+                    </setHeader>
+                    <setHeader headerName="proposalNo" id="setProposalNo">
+                        <simple>${body[enquiryDetails][enqNo]}</simple>
+                    </setHeader>
+                    <setHeader headerName="partiesDemoDtls" id="setPartiesDemoDtls">
+                        <simple>${body[partiesDemoDtls]}</simple>
+                    </setHeader>
+                    <setHeader headerName="partiesAddressDtls" id="setPartiesAddressDtls">
+                        <simple>${body[partiesAddressDtls]}</simple>
+                    </setHeader>
+                    <setHeader headerName="partiesIdDtls" id="setPartiesIdDtls">
+                        <simple>${body[partiesIdDtls]}</simple>
+                    </setHeader>
+                    <setHeader headerName="hlCersaiDtls" id="setHlCersaiDtls">
+                        <simple>${body[hlCersaiDtls]}</simple>
+                    </setHeader>
+                    <setHeader headerName="hlChargesDtls" id="setHlChargesDtls">
+                        <simple>${body[hlChargesDtls]}</simple>
+                    </setHeader>
+                    <setHeader headerName="hlDocumentDtls" id="setHlDocumentDtls">
+                        <simple>${body[hlDocumentDtls]}</simple>
+                    </setHeader>
+                    <setHeader headerName="hlEnqIfcDtls" id="setHlEnqIfcDtls">
+                        <simple>${body[hlEnqIfcDtls]}</simple>
+                    </setHeader>
+                    <setHeader headerName="hlEnqOtherDtls" id="setHLEnqOtherDtls">
+                        <simple>${body[hlEnqOtherDtls]}</simple>
+                    </setHeader>
+                    <setHeader headerName="hlInsurance" id="setHlInsurance">
+                        <simple>${body[hlInsurance]}</simple>
+                    </setHeader>
+                    <setHeader headerName="hlInsuPremiumDtls" id="setHlInsuPremiumDtls">
+                        <simple>${body[hlInsuPremiumDtls]}</simple>
+                    </setHeader>
+                    <setHeader headerName="hlPropertyDtls" id="setHlPropertyDtls">
+                        <simple>${body[hlPropertyDtls]}</simple>
+                    </setHeader>
+                    <setHeader headerName="partyEmployment" id="setPartyEmployment">
+                        <simple>${body[partyEmployment]}</simple>
+                    </setHeader>
+                    <setHeader headerName="proposalReferences" id="setProposalReferences">
+                        <simple>${body[proposalReferences]}</simple>
+                    </setHeader>
+                    <setHeader headerName="bankDtls" id="setBankDtls">
+                        <simple>${body[bankDtls]}</simple>
+                    </setHeader>
+                    <setHeader headerName="proposalAdvInst" id="setProposalAdvInst">
+                        <simple>${body[proposalAdvInst]}</simple>
+                    </setHeader>
+                    <setHeader headerName="proposalLPDtls" id="setProposalLPDtls">
+                        <simple>${body[proposalLPDtls]}</simple>
+                    </setHeader>
+                    <setHeader headerName="proposalDirector" id="setProposalDirector">
+                        <simple>${body[proposalDirector]}</simple>
+                    </setHeader>
+                    <setHeader headerName="proposalNomineeDtls" id="setProposalNomineeDtls">
+                        <simple>${body[proposalNomineeDtls]}</simple>
+                    </setHeader>
+                    <setHeader headerName="proposalDo" id="setProposalDo">
+                        <simple>${body[proposalDo]}</simple>
+                    </setHeader>
+                    <setHeader headerName="enqPslDtls" id="setEnqPslDtls">
+                        <simple>${body[enqPslDtls]}</simple>
+                    </setHeader>
+                    <setHeader headerName="partyHighRiskDtls" id="setPartyHighRiskDtls">
+                        <simple>${body[partyHighRiskDtls]}</simple>
+                    </setHeader>
+                    <setHeader headerName="proposalFinanceDtls" id="setProposalFinanceDtls">
+                        <simple>${body[proposalFinanceDtls]}</simple>
+                    </setHeader>
+                    <setHeader headerName="repaymentSchedule" id="setRepaymnetSchedule">
+                        <simple>${body[repaymentSchedule]}</simple>
+                    </setHeader>
+                    <setHeader headerName="proposalChargesDtls" id="setProposalChargesDtls">
+                        <simple>${body[proposalChargesDtls]}</simple>
+                    </setHeader>
+                    <setHeader headerName="proposalDocumentDtls" id="setProposalDocumentDtls">
+                        <simple>${body[proposalDocumentDtls]}</simple>
+                    </setHeader>
+                    <setHeader headerName="smeRefProposal" id="setSmeRefProposal">
+                        <simple>${body[smeRefProposal]}</simple>
+                    </setHeader>
+                    <setHeader headerName="proposalPdcDetails" id="proposalPdcDetails">
+                        <simple>${body[proposalPdcDetails]}</simple>
+                    </setHeader>
+                    <!-- Process party enquiry  details -->
+                    <setBody id="_setBody1">
+                        <simple>${body[enquiryDetails]}</simple>
+                    </setBody>
+                    <to id="InsertPartyEnqMain" uri="sql:{{SqlInsertLosEnquiryMain}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                    <log id="_log1" message="Record in enquiry main added successfully"/>
+                    <!-- Process to create party Demographic Details -->
+                    <setBody id="setDemographicDetails">
+                        <simple>${in.header.partiesDemoDtls}</simple>
+                    </setBody>
+                    <split id="splitDemoDtls" stopOnException="true">
+                        <simple>${body}</simple>
+                        <to id="insertPartyDemoDtls" uri="sql:{{SqlInsertPartyDemoDtls}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                    </split>
+                    <log id="_log2" message="Records in party Demographic details added successfully"/>
+                    <!-- Process to create party Address Details -->
+                    <setBody id="setAddressDetails">
+                        <simple>${in.header.partiesAddressDtls}</simple>
+                    </setBody>
+                    <split id="splitAddressDtls" stopOnException="true">
+                        <simple>${body}</simple>
+                        <to id="insertPartyAddressDemoDtls" uri="sql:{{SqlInsertPartyAddressDtls}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                    </split>
+                    <log id="_log3" message="Records in party Address details added successfully"/>
+                    <!-- Process to create party ID Details -->
+                    <setBody id="setIDDetails">
+                        <simple>${in.header.partiesIdDtls}</simple>
+                    </setBody>
+                    <split id="splitIdDtls" stopOnException="true">
+                        <simple>${body}</simple>
+                        <to id="insertpartyIdDtls" uri="sql:{{SqlInsertPartyIdDtls}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                    </split>
+                    <log id="_log4" message="Records in party ID details added successfully"/>
+                    <!-- Process to create hl Cersai Details -->
+                    <filter id="FilterHLCersaiDtls">
+                        <simple>${in.header.hlCersaiDtls} != null and ${in.header.hlCersaiDtls} != ''</simple>
+                        <setBody id="sethlCersaiDtls">
+                            <simple>${in.header.hlCersaiDtls}</simple>
+                        </setBody>
+                        <split id="splitCersaiDtls" stopOnException="true">
+                            <simple>${body}</simple>
+                            <to id="insertHlCersaiDtls" uri="sql:{{SqlInsertHlCersaiDtls}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                        </split>
+                        <log id="_log5" message="Records in HL Cersai details added successfully"/>
+                    </filter>
+                    <!-- Process to create Hl Charges Details -->
+                    <filter id="FilterHlChargesDtls">
+                        <simple>${in.header.hlChargesDtls} != null and ${in.header.hlChargesDtls} != ''</simple>
+                        <setBody id="sethlChargesDtls">
+                            <simple>${in.header.hlChargesDtls}</simple>
+                        </setBody>
+                        <split id="splithlChargesDtls" stopOnException="true">
+                            <simple>${body}</simple>
+                            <to id="insertHlChargesDtls" uri="sql:{{SqlInsertHlChargesDtls}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                        </split>
+                        <log id="_log6" message="Records in HL Charges details added successfully"/>
+                    </filter>
+                    <!-- Process to create Hl Document Details -->
+                    <setBody id="sethlDocumentDtls">
+                        <simple>${in.header.hlDocumentDtls}</simple>
+                    </setBody>
+                    <split id="splithlDocumentDtls" stopOnException="true">
+                        <simple>${body}</simple>
+                        <to id="insertHlDocumentDtls" uri="sql:{{SqlInsertHlDocumentDtls}}?dataSource=#CCAUATDBConnection"/>
+                    </split>
+                    <log id="_log7" message="Records in HL Document details added successfully"/>
+                    <!-- Process to create Hl Enq IFC Details -->
+                    <filter id="FilterEnqIFCDtls">
+                        <simple>${in.header.hlEnqIfcDtls} != null and ${in.header.hlEnqIfcDtls} != ''</simple>
+                        <setBody id="sethlEnqIfcDtls">
+                            <simple>${in.header.hlEnqIfcDtls}</simple>
+                        </setBody>
+                        <split id="splithlEnqIfcDtls" stopOnException="true">
+                            <simple>${body}</simple>
+                            <to id="insertHlChargesDtls" uri="sql:{{SqlInsertHlEnqIfcDtls}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                        </split>
+                        <log id="_log8" message="Records in HL Enq IFC details added successfully"/>
+                    </filter>
+                    <!-- Process to create Hl Enq Other Details -->
+                    <filter id="FilterEnqOtherDtls">
+                        <simple>${in.header.hlEnqOtherDtls} != null and ${in.header.hlEnqOtherDtls} != ''</simple>
+                        <setBody id="sethlEnqOtherDtls">
+                            <simple>${in.header.hlEnqOtherDtls}</simple>
+                        </setBody>
+                        <to id="insertHlChargesDtls" uri="sql:{{SqlInsertHlEnqotherDtls}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                        <log id="_log9" message="Records in HL Enq Other details added successfully"/>
+                    </filter>
+                    <!-- Process to create Hl Insurance Details -->
+                    <filter id="FilterHLinsurance">
+                        <simple>${in.header.hlInsurance} != null and ${in.header.hlInsurance} != ''</simple>
+                        <setBody id="sethlInsurance">
+                            <simple>${in.header.hlInsurance}</simple>
+                        </setBody>
+                        <split id="splithlInsurance" stopOnException="true">
+                            <simple>${body}</simple>
+                            <to id="insertHlInsurance" uri="sql:{{SqlInsertHlInsurance}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                        </split>
+                        <log id="_log10" message="Records in HL Insurance details added successfully"/>
+                    </filter>
+                    <!-- Process to create Hl Insurance Premium Details -->
+                    <filter id="FilterHlInsuPremiumDtls">
+                        <simple>${in.header.hlInsuPremiumDtls} != null and ${in.header.hlInsuPremiumDtls} != ''</simple>
+                        <setBody id="sethlInsuPremiumDtls">
+                            <simple>${in.header.hlInsuPremiumDtls}</simple>
+                        </setBody>
+                        <split id="splithlInsuPremiumDtls" stopOnException="true">
+                            <simple>${body}</simple>
+                            <to id="insertHlInsuPremiumDtls" uri="sql:{{SqlInsertHlInsuPremiumDtls}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                        </split>
+                        <log id="_log11" message="Records in HL Insurance Premium details added successfully"/>
+                    </filter>
+                    <!-- Process to create Hl Property Details -->
+                    <filter id="FilterHlPropDtls">
+                        <simple>${in.header.hlPropertyDtls} != null and ${in.header.hlPropertyDtls} != ''</simple>
+                        <setBody id="sethlPropertyDtls">
+                            <simple>${in.header.hlPropertyDtls}</simple>
+                        </setBody>
+                        <to id="insertHlPropertyDtls" uri="sql:{{SqlInsertHlPropertyDtls}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                        <log id="_log12" message="Records in HL Property details added successfully"/>
+                    </filter>
+                    <!-- Process to create Party Employment -->
+                    <setBody id="setpartyEmployment">
+                        <simple>${in.header.partyEmployment}</simple>
+                    </setBody>
+                    <split id="splitpartyEmployment" stopOnException="true">
+                        <simple>${body}</simple>
+                        <to id="insertPartyEmployment" uri="sql:{{SqlInsertPartyEmployment}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                    </split>
+                    <log id="_log13" message="Records in Party Employment added successfully"/>
+                    <!-- Process to create Proposal References -->
+                    <setBody id="setPropReferences">
+                        <simple>${in.header.proposalReferences}</simple>
+                    </setBody>
+                    <split id="splitPropReferences" stopOnException="true">
+                        <simple>${body}</simple>
+                        <to id="insertProposalReferences" uri="sql:{{SqlInsertProposalReference}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                    </split>
+                    <log id="_log14" message="Records in Proposal References added successfully"/>
+                    <!-- Process to create Bank Details -->
+                    <setBody id="setbankDtls">
+                        <simple>${in.header.bankDtls}</simple>
+                    </setBody>
+                    <split id="splitBankDtls" stopOnException="true">
+                        <simple>${body}</simple>
+                        <to id="insertBankDtls" uri="sql:{{SqlInsertBankDtls}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                    </split>
+                    <log id="_log15" message="Records in bank details added successfully"/>
+                    <!-- Process to create Proposal Adv Inst -->
+                    <filter id="FilterpdcPropDtls">
+                        <simple>${in.header.proposalAdvInst} != null and ${in.header.proposalAdvInst} != ''</simple>
+                        <setBody id="setPropAdvInst">
+                            <simple>${in.header.proposalAdvInst}</simple>
+                        </setBody>
+                        <split id="splitPropAdvInst" stopOnException="true">
+                            <simple>${body}</simple>
+                            <to id="insertProposalAdvInst" uri="sql:{{SqlInsertPropAdvInst}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                        </split>
+                        <log id="_log16" message="Records in proposal adv inst added successfully"/>
+                    </filter>
+                    <!-- Process to create Proposal LP Details -->
+                    <filter id="FilterpdcPropDtls">
+                        <simple>${in.header.proposalLPDtls} != null and ${in.header.proposalLPDtls} != ''</simple>
+                        <setBody id="setPropLPDtls">
+                            <simple>${in.header.proposalLPDtls}</simple>
+                        </setBody>
+                        <split id="splitPropLPDtls" stopOnException="true">
+                            <simple>${body}</simple>
+                            <to id="insertProposalLPDtls" uri="sql:{{SqlInsertPropLPDtls}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                        </split>
+                        <log id="_log17" message="Records in proposal LP Details added successfully"/>
+                    </filter>
+                    <!-- Process to create Proposal Director -->
+                    <filter id="FilterpdcPropDtls">
+                        <simple>${in.header.proposalDirector} != null and ${in.header.proposalDirector} != ''</simple>
+                        <setBody id="setPropDirector">
+                            <simple>${in.header.proposalDirector}</simple>
+                        </setBody>
+                        <split id="splitPropDirector" stopOnException="true">
+                            <simple>${body}</simple>
+                            <to id="insertProposalDirector" uri="sql:{{SqlInsertPropDirector}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                        </split>
+                        <log id="_log18" message="Records in proposal Director added successfully"/>
+                    </filter>
+                    <!-- Process to create Proposal Nominee Details -->
+                    <setBody id="setPropnomineeDtls">
+                        <simple>${in.header.proposalNomineeDtls}</simple>
+                    </setBody>
+                    <split id="splitPropNomineeDtls" stopOnException="true">
+                        <simple>${body}</simple>
+                        <to id="insertProposalNomineeDtls" uri="sql:{{SqlInsertPropNomineeDtls}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                    </split>
+                    <log id="_log19" message="Records in proposal Nominee Detials added successfully"/>
+                    <!-- Process to create Proposal Do -->
+                    <filter id="FilterpdcPropDtls">
+                        <simple>${in.header.proposalDo} != null and ${in.header.proposalDo} != ''</simple>
+                        <setBody id="setPropDo">
+                            <simple>${in.header.proposalDo}</simple>
+                        </setBody>
+                        <split id="splitPropDo" stopOnException="true">
+                            <simple>${body}</simple>
+                            <to id="insertProposalDo" uri="sql:{{SqlInsertPropDo}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                        </split>
+                        <log id="_log20" message="Records in proposal Do added successfully"/>
+                    </filter>
+                    <!-- Process to create Enq Psl Details -->
+                    <setBody id="setnqPslDtls">
+                        <simple>${in.header.enqPslDtls}</simple>
+                    </setBody>
+                    <log id="_log28" message="txn id=${header.esbtxnid} and compcd=${header.compCd} and enqno==${header.enqNo} and body@@@@@@@@@@@@==${body}"/>
+                    <to id="insertEnqPslDtls" uri="sql:{{SqlInsertEnqPslDtls}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                    <log id="_log21" message="Records in Enq Psl Details added successfully"/>
+                    <!-- Process to create Party High Risk Details -->
+                    <setBody id="setRiskDtls">
+                        <simple>${in.header.partyHighRiskDtls}</simple>
+                    </setBody>
+                    <to id="insertpartyRiskDtls" uri="sql:{{SqlInsertPartyHighRiskDtls}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                    <log id="_log22" message="Records in party Risk Details added successfully"/>
+                    <!-- Process to create Proposal Finance  Details -->
+                    <setBody id="setPropFinanceDtls">
+                        <simple>${in.header.proposalFinanceDtls}</simple>
+                    </setBody>
+                    <to id="insertProposalFinanceDtls" uri="sql:{{SqlInsertPropFinanceDtls}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                    <log id="_log23" message="Records in Proposal Finance Details added successfully"/>
+                    <!-- Process to create Repayment Schedule -->
+                    <filter id="FilterpdcPropDtls">
+                        <simple>${in.header.repaymentSchedule} != null and ${in.header.repaymentSchedule} != ''</simple>
+                        <setBody id="setRepaySchedule">
+                            <simple>${in.header.repaymentSchedule}</simple>
+                        </setBody>
+                        <split id="splitRepaySchedule" stopOnException="true">
+                            <simple>${body}</simple>
+                            <to id="insertRepaySchedule" uri="sql:{{SqlInsertRepaymentSchedule}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                        </split>
+                        <log id="_log24" message="Records in Repayment Schedule added successfully"/>
+                    </filter>
+                    <!-- Process to create Proposal Charges Details -->
+                    <setBody id="setPropChargesDtls">
+                        <simple>${in.header.proposalChargesDtls}</simple>
+                    </setBody>
+                    <split id="splitPropChargesDtls" stopOnException="true">
+                        <simple>${body}</simple>
+                        <to id="insertPropChargesDtls" uri="sql:{{SqlInsertPropChargesDtls}}?dataSource=#CCAUATDBConnection"/>
+                    </split>
+                    <log id="_log25" message="Records in Proposal Charges Details added successfully&amp;transacted=true"/>
+                    <!-- Process to create Proposal Document Details -->
+                    <filter id="FilterpdcPropDtls">
+                        <simple>${in.header.proposalDocumentDtls} != null and ${in.header.proposalDocumentDtls} != ''</simple>
+                        <setBody id="setPropDocumentDtls">
+                            <simple>${in.header.proposalDocumentDtls}</simple>
+                        </setBody>
+                        <split id="splitPropDocumentDtls" stopOnException="true">
+                            <simple>${body}</simple>
+                            <to id="insertPropDocumentDtls" uri="sql:{{SqlInsertPropDocumentDtls}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                        </split>
+                        <log id="_log26" message="Records in Proposal Document Details added successfully"/>
+                    </filter>
+                    <!-- Process to create SME Reference Proposal  -->
+                    <filter id="FilterpdcPropDtls">
+                        <simple>${in.header.smeRefProposal} != null and ${in.header.smeRefProposal} != ''</simple>
+                        <setBody id="setSMERefProp">
+                            <simple>${in.header.smeRefProposal}</simple>
+                        </setBody>
+                        <split id="splitSmeRefProp" stopOnException="true">
+                            <simple>${body}</simple>
+                            <to id="insertSmeRefProp" uri="sql:{{SqlInsertSmeReferenceProp}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                        </split>
+                        <log id="_log27" message="Records in SME Reference Proposal added successfully"/>
+                    </filter>
+                    <filter id="FilterpdcPropDtls">
+                        <simple>${in.header.proposalPdcDetails} != null and ${in.header.proposalPdcDetails} != ''</simple>
+                        <setBody id="proposalPdcDetails">
+                            <simple>${in.header.proposalPdcDetails}</simple>
+                        </setBody>
+                        <split id="_split1" stopOnException="true">
+                            <simple>${body}</simple>
+                            <to id="insertPdcPropertyDtls" uri="sql:{{SqlInserproposalPdcDetails}}?dataSource=#CCAUATDBConnection&amp;transacted=true"/>
+                        </split>
+                        <log id="_log12" message="Records in proposalPdcDetailss added successfully"/>
+                    </filter>
+                    <setBody id="responseBody">
+                        <simple>{"txnid":"${in.header.esbtxnid}","status":"Customer Data Added Successfully"}</simple>
+                    </setBody>
+                    <setHeader headerName="status1" id="succses">
+                        <simple>success</simple>
+                    </setHeader>
+                    <setHeader headerName="requestType" id="Targetreq">
+                        <simple>Target Response</simple>
+                    </setHeader>
+                    <to id="_to1" pattern="InOnly" uri="seda:PushCustmerLog"/>
+                </otherwise>
+            </choice>
+            <onException id="HandleException" useOriginalMessage="true">
+                <exception>java.lang.Exception</exception>
+                <handled>
+                    <constant>true</constant>
+                </handled>
+                <log id="LogDBError" message=" Push All Customer Data Error occured while processing request is ${exception.message} for the operation ${in.header.OperationName}"/>
+                <setProperty id="_setProperty1" propertyName="ErrorOccured">
+                    <constant>yes</constant>
+                </setProperty>
+                <setProperty id="setExpMsg" propertyName="ExpMsg">
+                    <simple>${exception.message}</simple>
+                </setProperty>
+                <process id="processErrorResp" ref="ErrorAckProcessor"/>
+                <marshal id="MarshalErrorResponse">
+                    <json library="Jackson" prettyPrint="true"/>
+                </marshal>
+                <convertBodyTo id="ErrorReponse" type="java.lang.String"/>
+                <setHeader headerName="status1" id="succses12">
+                    <simple>error</simple>
+                </setHeader>
+                <setProperty id="_setProper" propertyName="requestType">
+                    <simple>Source Response</simple>
+                </setProperty>
+                <to id="success" pattern="InOnly" uri="seda:PushCustmerLog"/>
+                <rollback id="rollback" markRollbackOnly="true" message="transaction was rollback successfully"/>
+            </onException>
+        </route>
+        <route id="_route1">
+            <from id="_from1" uri="seda:PushCustmerLog"/>
+            <setBody id="_setBody2">
+                <simple>{"txnid":"${exchangeProperty.esbtxnid}","source":"${exchangeProperty.esbsource}","timestamp":"${date:now:dd-yyyy-MM HH-mm-ss}","Type":"${header.requestType}","Payload":${body},"status":"${header.status1}"}</simple>
+            </setBody>
+            <log id="_log1" message="${body}"/>
+        </route>
+    </camelContext>
+</blueprint>

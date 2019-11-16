@@ -1,0 +1,24 @@
+Manifest-Version: 1.0
+Bnd-LastModified: 1573892897735
+Build-Jdk: 1.8.0_221
+Built-By: Ramashish Maurya
+Bundle-Blueprint: OSGI-INF/blueprint/blueprint.xml
+Bundle-Description: Push Customer Rejection Data
+Bundle-License: http://www.apache.org/licenses/LICENSE-2.0.html
+Bundle-ManifestVersion: 2
+Bundle-Name: PushCustomerRejection
+Bundle-SymbolicName: PushCustomerRejection
+Bundle-Version: 1.0.0.SNAPSHOT
+Created-By: Apache Maven Bundle Plugin
+DynamicImport-Package: *
+Export-Package: com.magma.pushCustomerRejection;uses:="javax.ws.rs,org.a
+ pache.camel";version="1.0.0"
+Import-Package: javax.ws.rs;resolution:=optional;version=0,org.apache.ca
+ mel;resolution:=optional;version=0,org.apache.camel.component.sql;resol
+ ution:=optional;version=0,org.apache.camel.spring.spi;resolution:=optio
+ nal;version=0,org.apache.commons.dbcp;resolution:=optional;version=0,or
+ g.osgi.service.blueprint;version=0;resolution:=optional,org.springframe
+ work.jdbc.datasource;resolution:=optional;version=0,com.mysql.jdbc;reso
+ lution:=optional;version=0
+Require-Capability: osgi.ee;filter:="(&(osgi.ee=JavaSE)(version=1.8))"
+Tool: Bnd-3.2.0.201605172007

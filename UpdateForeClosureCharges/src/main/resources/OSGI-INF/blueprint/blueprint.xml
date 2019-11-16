@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+    <cm:property-placeholder persistent-id="CCAConnection" update-strategy="reload"/>
+    <!-- Rest Service endpoint declaration -->
+    <cxf:rsServer address="${ReceiveUpdateForeClouserRequest}"
+        id="UpdateForeClouserRestEndpoint" serviceClass="com.magma.updateForeClosure.updateForeClosureRestService"/>
+    <!-- JDBC Datasource connection declaration -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="CCAUATDBConnection">
+        <property name="driverClassName" value="oracle.jdbc.driver.OracleDriver"/>
+        <property name="url" value="${CCAJDBCURL}"/>
+        <property name="username" value="${Username}"/>
+        <property name="password" value="${Password}"/>
+        <property name="validationQuery" value="select 1 from dual"/>
+        <property name="testOnBorrow" value="true"/>
+    </bean>
+    <!-- configure the Camel SQL component to use the JDBC data source -->
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="CCAUATDBConnection"/>
+    </bean>
+    <!-- Transaction bean  Declarations -->
+    <bean class="org.springframework.jdbc.datasource.DataSourceTransactionManager" id="txManager">
+        <property name="dataSource" ref="CCAUATDBConnection"/>
+    </bean>
+    <bean id="required" class="org.apache.camel.spring.spi.SpringTransactionPolicy">
+     <property name="transactionManager" ref="txManager"/>
+     </bean>
+    <!-- Bean Declarations -->
+    <bean class="com.magma.updateForeClosure.ErrorAcknowledger" id="ErrorAckProcessor"/>
+    <bean class="com.magma.updateForeClosure.GetLog" id="getlog"/>
+    <camelContext id="UpdateForeClouser" useMDCLogging="true" xmlns="http://camel.apache.org/schema/blueprint">
+        <!-- Data formats Declarations -->
+        <dataFormats>
+            <json id="json" library="Jackson"/>
+        </dataFormats>
+        <!-- -->
+        <route autoStartup="true" id="UpdateForeClouserRoute" startupOrder="1">
+            <from id="ReceiveFIAllocationRequest" uri="cxfrs:bean:UpdateForeClouserRestEndpoint"/>
+             <transacted id="transacteddb" ref="required"/>
+            <setHeader headerName="requestType" id="Request">
+                <simple>Source Request</simple>
+            </setHeader>
+            <setProperty id="Propertyesbtxnid" propertyName="esbtxnid">
+                <simple>${header.esb-txnid}</simple>
+            </setProperty>
+            <setProperty id="Propertyesbsource" propertyName="esbsource">
+                <simple>${header.esb-source}</simple>
+            </setProperty>
+            <setHeader headerName="esbtxnid" id="txnid">
+                <simple>${header.esb-txnid}</simple>
+            </setHeader>
+            <to id="_to1" pattern="InOnly" uri="seda:UpdateForClousertlog"/>
+            <to id="validateheader" uri="direct-vm:processHeader"/>
+            <choice id="headerProcessing">
+                <when id="Missingheader">
+                    <simple>${header.Error} == 'MissingHeader'</simple>
+                    <setProperty id="sore" propertyName="requestType">
+                        <simple>Source Response</simple>
+                    </setProperty>
+                </when>
+                <otherwise id="SuccessPath">
+                    <unmarshal id="UnamarshalLosRequest" ref="json"/>
+                    <setHeader headerName="RequestDtl" id="_setHeader2">
+                        <simple>${body[RequestDtl]}</simple>
+                    </setHeader>
+                    <setBody id="_setBody1">
+                        <simple>${body[RequestHdr]}</simple>
+                    </setBody>
+                    <to id="InsertPOC" uri="sql:insert into NAVODAY_STAGING.vw_foreclosure_request_hdr (ESB_REF_ID,NEW_COMP_CODE,NEW_PROPOSAL_NO,OLD_COMP_CODE,OLD_PROPOSAL_NO,TERMINATION_DATE,VALID_TILL_DATE,TOTAL_AMOUNT_DUE,TOTAL_AMOUNT_SETTLED) values (:#esbtxnid, :#newCompCode, :#newProposalNo, :#oldCompCode,:#oldProposalNo,:#terminationDate,:#chargesValidtilldate,:#totalDueAmount,:#settledDueAmount)?dataSource=CCAUATDBConnection"/>
+                    <setBody id="_setBody2">
+                        <simple>${header.RequestDtl}</simple>
+                    </setBody>
+                    <split id="_split1" stopOnException="true">
+                        <simple>${body}</simple>
+                        <to id="InsertPOC" uri="sql:insert into NAVODAY_STAGING.vw_foreclosure_request_dtl (ESB_REF_ID,OLD_COMP_CODE,OLD_PROPOSAL_NO,COMPONENT_CODE,DUE_AMOUNT,SETTLEMENT_AMOUNT,APPROVE_ID,APPROVE_DATE) values (:#esbtxnid, :#oldCompCode,:#oldProposalNo, :#componentCode,:#dueAmount,:#settlementAmount,:#approverId,:#approveDate)?dataSource=CCAUATDBConnection"/>
+                    </split>
+                    <setHeader headerName="Content-Type" id="_setHeader4">
+                        <simple>application/json</simple>
+                    </setHeader>
+                    <setBody id="_setBody4">
+                        <simple>{"txnid":"${header.esbtxnid}","status":"request inserted successfully"}</simple>
+                    </setBody>
+                    <setProperty id="Sorceresp" propertyName="requestType">
+                        <simple>Source Response</simple>
+                    </setProperty>
+                    <setHeader headerName="status1" id="succses">
+                        <simple>success</simple>
+                    </setHeader>
+                    <to id="success" pattern="InOnly" uri="seda:UpdateForClousertlog"/>
+                </otherwise>
+            </choice>
+            <onException id="HandleException" useOriginalMessage="true">
+                <exception>java.lang.Exception</exception>
+                <handled>
+                    <constant>true</constant>
+                </handled>
+                <setProperty id="_setProperty1" propertyName="ErrorOccured">
+                    <constant>yes</constant>
+                </setProperty>
+                <setProperty id="setExpMsg" propertyName="ExpMsg">
+                    <simple>${exception.message}</simple>
+                </setProperty>
+                <process id="processErrorResp" ref="ErrorAckProcessor"/>
+                <marshal id="MarshalErrorResponse">
+                    <json library="Jackson" prettyPrint="true"/>
+                </marshal>
+                <convertBodyTo id="ErrorReponse" type="java.lang.String"/>
+                <setProperty id="SEResp" propertyName="requestType">
+                    <simple>Source Response</simple>
+                </setProperty>
+                <to pattern="InOnly" uri="seda:UpdateForClousertlog"/>
+                   <rollback id="rollback" markRollbackOnly="true" message="transaction was rollback successfully"/>
+            </onException>
+        </route>
+        <route id="_route1">
+            <from id="_from1" uri="seda:UpdateForClousertlog"/>
+            <setBody id="setResponse">
+                <simple>{"txnid":"${exchangeProperty.esbtxnid}","source":"${exchangeProperty.esbsource}","timestamp":"${date:now:dd-yyyy-MM HH-mm-ss}","Type":"${header.requestType}","Payload":${body},"status":"${header.status1}"}</simple>
+            </setBody>
+            <!--  <bean id="_bean1" method="getLog('${body}')" ref="getlog"/> -->
+            <log id="_log1" message="${body}"/>
+        </route>
+    </camelContext>
+</blueprint>

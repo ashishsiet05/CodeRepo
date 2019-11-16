@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                    http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd                    http://camel.apache.org/schema/blueprint/cxf  http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd">
+    <cm:property-placeholder persistent-id="CCAConnection" update-strategy="reload"/>
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="CCAUATDBConnection">
+        <property name="driverClassName" value="oracle.jdbc.driver.OracleDriver"/>
+        <property name="url" value="${CCAJDBCURL}"/>
+        <property name="username" value="${Username}"/>
+        <property name="password" value="${Password}"/>
+        <property name="validationQuery" value="select 1 from dual"/>
+        <property name="testOnBorrow" value="true"/>
+        <property name="maxWait" value="6000"/>
+    </bean>
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="CCAUATDBConnection"/>
+    </bean>
+    <!-- <bean id="rowmapper" class="org.apache.camel.component.jdbc.BeanRowMapper"/> -->
+    <camelContext id="PRDisbursmentResponse" streamCache="true"
+        useMDCLogging="true" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <json id="jsonOrder" library="Jackson"/>
+        </dataFormats>
+        <!-- <onException id="HandleException" useOriginalMessage="true"> <exception>java.lang.Exception</exception> 
+			<handled> <constant>true</constant> </handled> <log id="onexceptionhfcLog" 
+			message="Exception occured======${exception.message}" /> </onException> -->
+        <route id="PRDisbursmentResponseHFC" startupOrder="1">
+            <from id="HfcTimer" uri="timer://PRDisbursmentHfcResponse?period={{DisbursmentResponseTimer}}"/>
+            <!-- <setBody id="hfcsqlQuery"> <simple>select COMP_CODE as "compCd",PROPOSAL_NO 
+				as "proposalNo",REQ_NO as "reqNo",LOS_TRANCHE_ID as "losTrancheId",LOS_PAYMENT_ID 
+				as "losPaymentId",REASON as "reason",TO_CHAR(PROCESSED_ON,'MM-DD-YY') "processedOn",DIVISION_CODE 
+				as "divisionCode",TO_CHAR(CANCEL_DATE,'MM-DD-YYYY') as "cancleDate" from 
+				NAVODAY_STAGING.TB_LOS_CANCELLED_PAY_REQ where PROCESSED_ON is null </simple> 
+				</setBody> <setHeader headerName="CamelSqlQuery" id="_setHeader1"> <simple>select 
+				COMP_CODE as "compCd",PROPOSAL_NO as "proposalNo",REQ_NO as "reqNo",LOS_TRANCHE_ID 
+				as "losTrancheId",LOS_PAYMENT_ID as "losPaymentId",REASON as "reason",TO_CHAR(PROCESSED_ON,'MM-DD-YY') 
+				"processedOn",DIVISION_CODE as "divisionCode",TO_CHAR(CANCEL_DATE,'MM-DD-YYYY') 
+				as "cancleDate" from NAVODAY_STAGING.TB_LOS_CANCELLED_PAY_REQ</simple> </setHeader> 
+				<to id="_to2" uri="sql:${header.CamelSqlQuery}?dataSource=#CCAUATDBConnection"/> 
+				<choice id="_choice1"/> <marshal id="_marshal1" ref="jsonOrder"/> <setProperty 
+				id="hfcDbBody" propertyName="HFCanBody"> <simple>${body}</simple> </setProperty> 
+				<to id="callDB" uri="jdbc:CCAUATDBConnection?outputClass=com.magma.prdisbursementresponse.PrCancle&amp;outputType=SelectList&amp;beanRowMapper=#rowmapper" 
+				/> <log id="dbhfcResponse" message="HFC Cancell database response===============${body}"/> 
+				<setBody id="_setBody1"> <simple>select COMP_CODE,PROPOSAL_NO,REQ_NO,LOS_TRANCHE_ID,LOS_PAYMENT_ID,VOUCHER_NO,PAYMT_INSTRUMENT_NO,TO_CHAR(PAYMT_INSTRUMENT_DATE,'MM-DD-YY') 
+				PAYMT_INSTRUMENT_DATE,DIVISION_CODE from NAVODAY_STAGING.TB_LOS_PAY_REQ_INSTRUMENT 
+				</simple> </setBody> -->
+            <setHeader headerName="CamelSqlQuery" id="_setHeader2">
+                <simple>select COMP_CODE as "compCd",PROPOSAL_NO as "proposalNo",REQ_NO as "reqNo",LOS_TRANCHE_ID as "losTrancheId",LOS_PAYMENT_ID as "losPaymentId",VOUCHER_NO as "vocherNo",TO_CHAR(PAYMT_INSTRUMENT_DATE,'MM-DD-YYYY') "paymentInstrumentDate",PAYMT_INSTRUMENT_NO as "paymentInstrumentNo",TO_CHAR(PROCESSED_ON,'MM-DD-YY') "processedOn",DIVISION_CODE as "divisionCode" from NAVODAY_STAGING.TB_LOS_PAY_REQ_INSTRUMENT
+					</simple>
+            </setHeader>
+            <to id="_to3" uri="sql:${header.CamelSqlQuery}?dataSource=#CCAUATDBConnection"/>
+            <!-- <to id="callDB" uri="jdbc:CCAUATDBConnection"/> -->
+            <marshal id="_marshal2" ref="jsonOrder"/>
+            <choice id="_choice1">
+                <when id="_when1">
+                    <simple> ${body} != '[]'</simple>
+                    <log id="HfcResponseTableData" message="Instrument Table data is============= ${body}"/>
+                    <setProperty id="hfcInstrument" propertyName="InstrumentCamcellBody">
+                        <simple>${body}</simple>
+                    </setProperty>
+                    <!-- <to id="_to1" uri="direct:AccessToken"/> <setHeader headerName="Authorization" 
+						id="_setHeaderAccesstoken"> <simple>${exchangeProperty.AccessToken}</simple> 
+						</setHeader> -->
+                    <setHeader headerName="username" id="_setHeader1">
+                        <simple>devone</simple>
+                    </setHeader>
+                    <setHeader headerName="key" id="_setHeader3">
+                        <simple>abc123efg</simple>
+                    </setHeader>
+                    <setBody id="_setBody1">
+                        <simple>{"prSuccess":${exchangeProperty.InstrumentCamcellBody}</simple>
+                    </setBody>
+                    <log id="logHfc" message="HFC Request body =  ${body}"/>
+                    <to id="CallToLosHfc" uri="{{PRDisbursmentResponse.LosEndpoint}}?throwExceptionOnFailure=false"/>
+                    <log id="HfcResponselog" message="HFC ServiceApi response============= ${body}"/>
+                    <choice id="_choice2">
+                        <when id="_when2">
+                            <simple>
+							${body} contains 'Request Successfully Created'
+							</simple>
+                            <to id="ToUpdateTableIns" uri="direct:updatetable"/>
+                        </when>
+                    </choice>
+                </when>
+                <otherwise id="_otherwise1">
+                    <log id="HfcResponseTable" message="Instrument Table data is============= ${body}"/>
+                </otherwise>
+            </choice>
+        </route>
+        <route id="AccessTokenRoute" streamCache="true">
+            <from id="Accesstoken" uri="direct:AccessToken"/>
+            <setHeader headerName="CamelHttpMethod" id="methodtype">
+                <constant>POST</constant>
+            </setHeader>
+            <setHeader headerName="Content-Type" id="contenttype">
+                <simple>application/json</simple>
+            </setHeader>
+            <setBody id="accesstokenbody">
+                <simple>{{AccessTokenRequest}}</simple>
+            </setBody>
+            <to id="CallAccesstokenApi" uri="{{AccessToken.URI}}?throwExceptionOnFailure=false"/>
+            <setProperty id="setPropertyAccessToken" propertyName="AccessToken">
+                <jsonpath resultType="java.lang.String" suppressExceptions="true">$.data.access_token</jsonpath>
+            </setProperty>
+        </route>
+        <route id="update table">
+            <from id="updatetableenpoint" uri="direct:updatetable"/>
+            <setBody id="updateQueryBody">
+                <simple>Update NAVODAY_STAGING.TB_LOS_PAY_REQ_INSTRUMENT set PROCESSED_ON ='${date:now:dd-MMM-yy}' where DIVISION_CODE='000021' and PROCESSED_ON is null </simple>
+            </setBody>
+            <log id="updateQuery" message="update query = ${body}"/>
+            <to id="updatetab" uri="jdbc:CCAUATDBConnection"/>
+            <log id="recordupdated" message="record updated succesfully "/>
+        </route>
+    </camelContext>
+</blueprint>

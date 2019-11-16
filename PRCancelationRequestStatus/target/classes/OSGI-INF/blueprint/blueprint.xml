@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd            http://camel.apache.org/schema/blueprint/cxf  http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd">
+    <cm:property-placeholder persistent-id="CCAConnection" update-strategy="reload">
+    </cm:property-placeholder>
+    <!-- Rest Service endpoint declaration -->
+    <cxf:rsServer address="${ReceivePRCancelationRequest1}"
+        id="PRCancelationRequestStatusRestPoint" serviceClass="com.magma.PRCancelationRequestStatus.PRCancelationRequestStatusRestService"/>
+    <!-- JDBC Datasource connection declaration -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="CCAUATDBConnection">
+        <property name="driverClassName" value="oracle.jdbc.driver.OracleDriver"/>
+        <property name="url" value="${CCAJDBCURL}"/>
+        <property name="username" value="${Username}"/>
+        <property name="password" value="${Password}"/>
+        <property name="validationQuery" value="select 1 from dual"/>
+        <property name="testOnBorrow" value="true"/>
+    </bean>
+    <!-- configure the Camel SQL component to use the JDBC data source -->
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="CCAUATDBConnection"/>
+    </bean>
+    <!-- Bean Declarations -->
+    <bean class="com.magma.PRCancelationRequestStatus.ErrorAcknowledger" id="ErrorAckProcessor"/>
+    <bean class="com.magma.PRCancelationRequestStatus.ConvertDbDate" id="epochtoDate"/>
+    <camelContext id="PRCancelationRequestStatus" xmlns="http://camel.apache.org/schema/blueprint" useMDCLogging="true">
+        <!-- Data formats Declarations -->
+        <dataFormats>
+            <json id="json" library="Jackson"/>
+        </dataFormats>
+        <!-- -->
+        <route autoStartup="true" id="PRCancelationRequestStatusRoute">
+            <from id="PRCancelationRequest" uri="cxfrs:bean:PRCancelationRequestStatusRestPoint"/>
+            <setHeader headerName="requestType" id="Request">
+                <simple>Source Request</simple>
+            </setHeader>
+            <setProperty id="Propertyesbtxnid" propertyName="esbtxnid">
+                <simple>${header.esb-txnid}</simple>
+            </setProperty>
+            <setProperty id="Propertyesbsource" propertyName="esbsource">
+                <simple>${header.esb-source}</simple>
+            </setProperty>
+            <to id="_to1" pattern="InOnly" uri="seda:PRCancelationRequestStatusLog"/>
+            <to id="validateheader" uri="direct-vm:processHeader"/>
+            <choice id="headerProcessing">
+                <when id="Missingheader">
+                    <simple>${header.Error} == 'MissingHeader'</simple>
+                </when>
+                <otherwise id="SuccessPath">
+                    <unmarshal id="UnamarshaRequest" ref="json"/>
+                    <setBody id="_setBody1">
+                        <simple>select CANCEL_DATE,REASON,REQ_NO,PROPOSAL_STATUS,DISBURSEMENT_NO,LOS_TRANCHE_ID from NAVODAY_STAGING.tb_los_cancelled_pay_req where COMP_CODE='${body[cmpCd]}' and PROPOSAL_NO='${body[propNo]}' and DIVISION_CODE='${body[divCd]}' and LOS_TRANCHE_ID='${body[lostrancheId]}'
+                     </simple>
+                    </setBody>
+                    <to id="_to2" uri="jdbc:CCAUATDBConnection"/>
+                    <!--                       <to  id="_to1" uri="sql:select CANCEL_DATE,REASON,REQ_NO,PROPOSAL_STATUS,DISBURSEMENT_NO from NAVODAY_STAGING.tb_los_cancelled_pay_req where COMP_CODE=:#cmpCd and PROPOSAL_NO=:#propNo and DIVISION_CODE=:#divCd?dataSource=CCAUATDBConnection"/>
+ -->
+                    <!-- <marshal id="_marshal1" ref="json"/> -->
+                    <setHeader headerName="requestType" id="Request">
+                              <simple>Target Response</simple>
+                                     </setHeader>
+                   <to id="_to1" pattern="InOnly" uri="seda:PRCancelationRequestStatusLog"/>
+                    <choice id="_choice1">
+                        <when id="_when1">
+                            <simple>${body} == '[]'</simple>
+                            <setBody id="_setBody3">
+                                <simple>{"status":"No cancellation PR against this proposal"}</simple>
+                            </setBody>
+                        </when>
+                        <otherwise id="_otherwise1">
+                            <process id="_bean1" ref="epochtoDate"/>
+                            <marshal id="_marshal1" ref="json"/>
+                            <setHeader headerName="Dbbody" id="_setHeader1">
+                                <simple>${body}</simple>
+                            </setHeader>
+                            <setBody id="_setBody4">
+                                <simple>{"status":"cancelled","details":${header.Dbbody}}</simple>
+                            </setBody>
+                            <setProperty id="SResp" propertyName="requestType">
+                                <simple>Source Response</simple>
+                            </setProperty>
+                            <setHeader headerName="status1" id="succses">
+                                <simple>success</simple>
+                            </setHeader>
+                            <to id="success" pattern="InOnly" uri="seda:PRCancelationRequestStatusLog"/>
+                        </otherwise>
+                    </choice>
+                </otherwise>
+            </choice>
+            <onException id="HandleException" useOriginalMessage="true">
+                <exception>java.lang.Exception</exception>
+                <handled>
+                    <constant>true</constant>
+                </handled>
+                <setProperty id="_setProperty1" propertyName="ErrorOccured">
+                    <constant>yes</constant>
+                </setProperty>
+                <setProperty id="setExpMsg" propertyName="ExpMsg">
+                    <simple>${exception.message}</simple>
+                </setProperty>
+                <process id="processErrorResp" ref="ErrorAckProcessor"/>
+                <marshal id="MarshalErrorResponse">
+                    <json library="Jackson" prettyPrint="true"/>
+                </marshal>
+                <convertBodyTo id="ErrorReponse" type="java.lang.String"/>
+                <setHeader headerName="status1" id="succses">
+                    <simple>error</simple>
+                </setHeader>
+                <setProperty id="SResp" propertyName="requestType">
+                    <simple>Source Response</simple>
+                </setProperty>
+                <to id="success" pattern="InOnly" uri="seda:PRCancelationRequestStatusLog"/>
+            </onException>
+        </route>
+        <route id="_route1">
+            <from id="_from1" uri="seda:PRCancelationRequestStatusLog"/>
+            <setBody id="_setBody2">
+                <simple>{"txnid":"${exchangeProperty.esbtxnid}","source":"${exchangeProperty.esbsource}","timestamp":"${date:now:dd-yyyy-MM HH-mm-ss}","Type":"${header.requestType}","Payload":${body},"status":"${header.status1}"}</simple>
+            </setBody>
+            <!--  <bean id="_bean1" method="getLog('${body}')" ref="getlog"/> -->
+            <log id="_log5" message="${body}"/>
+        </route>
+    </camelContext>
+</blueprint>

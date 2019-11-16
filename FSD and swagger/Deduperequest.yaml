@@ -1,0 +1,236 @@
+swagger: "2.0"
+paths:
+  /Dedupe:
+    post:
+      parameters:
+        - name: Payload
+          description: Request Body
+          required: false
+          in: body
+          schema:
+            required:
+              - Data
+            properties:
+              Data:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    General:
+                      required:
+                        - RefReqstId
+                        - Dvsn
+                        - LeadNo
+                      properties:
+                        RefReqstId:
+                          type: string
+                          example: LOSHFC216
+                        Dvsn:
+                          type: string
+                          example: "000002"
+                        LeadNo:
+                          type: string
+                          example: PG/0016/F/15/000031
+                      type: object
+                    ApplcntDtls:
+                      required:
+                        - HCGSLNo
+                        - Brnch
+                        - ApplcntNm
+                        - FthrNm
+                        - SpsNm
+                        - PAN
+                        - AadhaarNum
+                        - VtrID
+                        - Pssprt
+                        - DrvngLcns
+                        - NregaJobCrd
+                        - Dob
+                        - GSTIN
+                      properties:
+                        HCGSLNo:
+                          type: string
+                          example: "12"
+                        Brnch:
+                          type: string
+                          example: Mumbai
+                        ApplcntNm:
+                          type: string
+                          example: Rakesh
+                        FthrNm:
+                          type: string
+                          example: Lajpatrai
+                        SpsNm:
+                          type: string
+                          example: NA
+                        PAN:
+                          type: string
+                          example: ASXPC7974E
+                        AadhaarNum:
+                          type: string
+                          example: "123456789123"
+                        VtrID:
+                          type: string
+                          example: sadsda
+                        Pssprt:
+                          type: string
+                          example: K3429375
+                        DrvngLcns:
+                          type: string
+                          example: MH97723049
+                        NregaJobCrd:
+                          type: string
+                          example: test
+                        Dob:
+                          type: string
+                          example: 10-APR-57
+                        GSTIN:
+                          type: string
+                          example: HASJDH
+                      type: object
+                    PrsntCntctDtls:
+                      required:
+                        - AddrssLine
+                        - City
+                        - Pncd
+                        - Lclty
+                        - CntctMbl
+                      properties:
+                        AddrssLine:
+                          type: string
+                          example: Mumbai
+                        City:
+                          type: string
+                          example: Ambernath
+                        Pncd:
+                          type: string
+                          example: "421501"
+                        Lclty:
+                          type: string
+                          example: CHOUPARAN
+                        CntctMbl:
+                          type: string
+                          example: "9956970016"
+                      type: object
+                    PrmntCntctDtls:
+                      required:
+                        - AddrssLine
+                        - City
+                        - Pncd
+                        - CntctMbl
+                        - Lclty
+                      properties:
+                        AddrssLine:
+                          type: string
+                          example: Mumbai
+                        City:
+                          type: string
+                          example: UNR
+                        Pncd:
+                          type: string
+                          example: "421500"
+                        CntctMbl:
+                          type: string
+                          example: "9956970016"
+                        Lclty:
+                          type: string
+                          example: CHOUPARAN
+                      type: object
+                    CmmnctnCntctDtls:
+                      required:
+                        - AddrssLine
+                        - City
+                        - Lclty
+                        - Pncd
+                        - TlphnNum
+                        - State
+                      properties:
+                        AddrssLine:
+                          type: string
+                          example: asddsaf
+                        City:
+                          type: string
+                          example: Nagpur
+                        Lclty:
+                          type: string
+                          example: CHOUPARAN
+                        Pncd:
+                          type: string
+                          example: "578216"
+                        TlphnNum:
+                          type: string
+                          example: "9816150089"
+                        State:
+                          type: string
+                          example: Maharashtra
+                      type: object
+                    BssnssCntctDtls:
+                      required:
+                        - AddrssLine
+                        - City
+                        - Lclty
+                        - Pncd
+                        - TlphnNum
+                        - CntctMbl
+                      properties:
+                        AddrssLine:
+                          type: string
+                          example: asdfaff
+                        City:
+                          type: string
+                          example: PUNE
+                        Lclty:
+                          type: string
+                          example: AUNDH
+                        Pncd:
+                          type: string
+                          example: "579616"
+                        TlphnNum:
+                          type: string
+                          example: "9816150089"
+                        CntctMbl:
+                          type: string
+                          example: "9816150089"
+                      type: object
+        - name: esb-source
+          in: header
+          required: true
+          type: string
+        - name: esb-timestamp
+          in: header
+          required: true
+          type: string
+        - name: esb-txnid
+          in: header
+          required: true
+          type: string
+      responses:
+        "200":
+          description: ""
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/v2GetFltSecData"
+      x-auth-type: "Application & Application User"
+      x-throttling-tier: Unlimited
+      consumes:
+        - application/json
+      produces:
+        - application/json
+definitions:
+  v2GetFltSecData:
+    required:
+      - txnid
+      - errorCode
+      - errorDesc
+    properties:
+      status:
+        type: string
+        example: Success
+      message:
+        type: string
+        example: Customer Created Successfully
+info:
+  title: Deduperequest
+  version: 1.0.0
+  description: API To send customer details for de dupe

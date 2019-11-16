@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                    http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd                    http://camel.apache.org/schema/blueprint/cxf  http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd">
+    <cm:property-placeholder persistent-id="CRIFConnection" update-strategy="reload">
+    </cm:property-placeholder>
+    <cxf:rsServer address="${ReceiveLosBreRequest}"
+        id="LosBreRestEndpoint" serviceClass="com.magma.LosBre.LosBreRestService"/>
+    <!-- Bean Declarations -->
+    <bean class="com.magma.LosBre.ErrorAcknowledger" id="ErrorAckProcessor"/>
+    <bean class="com.magma.LosBre.BRERequestProcessor" id="BreRequestProcessor"/>
+    <bean class="com.magma.LosBre.EnrichJSON" id="EnrichJSON"/>
+    <bean class="com.magma.LosBre.GetLog" id="getlog"/>
+    <bean class="com.magma.LosBre.ArrayConversion" id="arr"/>
+    <camelContext id="LosBre" useMDCLogging="true" xmlns="http://camel.apache.org/schema/blueprint">
+        <dataFormats>
+            <xmljson
+                arrayName="Business Product TRPLBS BankDetails bankMonthDetails Obligation ObligationMonthDetails ProvisionalFinancials"
+                elementName="Data"
+                expandableProperties="General Application Business Product TRPLBS BankDetails bankMonthDetails Obligation ObligationMonthDetails ProvisionalFinancials"
+                forceTopLevelObject="true" id="LosBreRequest"
+                rootName="LosBreRequest" skipNamespaces="true" trimSpaces="true"/>
+            <xmljson elementName="LosResponse"
+                expandableProperties="General Application Business TRPLBS BankDetails BankMonthDetails Obligation ProfessionalFinancials"
+                forceTopLevelObject="false" id="LosResponse"
+                removeNamespacePrefixes="true" skipNamespaces="true" trimSpaces="true"/>
+            <xmljson elementName="resp"
+                expandableProperties="Envelope Body executeResponse executeReturn"
+                forceTopLevelObject="true" id="jsonxmlWithoutOptions"
+                removeNamespacePrefixes="true" rootName="Response"
+                skipNamespaces="true" trimSpaces="true"/>
+            <json id="jsonOrder" library="Jackson"/>
+        </dataFormats>
+        <route autoStartup="true" id="LosBreRoute">
+            <from id="LosBreRequest" uri="cxfrs:bean:LosBreRestEndpoint"/>
+            <setHeader headerName="requestType" id="Request">
+                <simple>Source Request</simple>
+            </setHeader>
+            <setProperty id="Propertyesbtxnid" propertyName="esbtxnid">
+                <simple>${header.esb-txnid}</simple>
+            </setProperty>
+            <setProperty id="Propertyesbsource" propertyName="esbsource">
+                <simple>${header.esb-source}</simple>
+            </setProperty>
+            <setHeader headerName="esbtxnid" id="_setHeader1">
+                <simple>${header.esb-txnid}</simple>
+            </setHeader>
+            <to id="_to1" pattern="InOnly" uri="seda:losBrelnIntgration"/>
+            <to id="validateheader" uri="direct-vm:processHeader"/>
+            <choice id="headerProcessing">
+                <when id="Missingheader">
+                    <simple>${header.Error} == 'MissingHeader'</simple>
+                </when>
+                <otherwise id="SuccessPath">
+                    <unmarshal id="UnmarshalLosRequest" ref="LosBreRequest"/>
+                    <to id="TransformLosToBRE" uri="xslt:./XSLT/BRERequest.xsl"/>
+                    <removeHeaders id="removeHeaders" pattern="*"/>
+                    <setProperty id="setCDATARequest" propertyName="CDATARequest">
+                        <simple>${body}</simple>
+                    </setProperty>
+                    <process id="ProcessBRERequest" ref="BreRequestProcessor"/>
+                    <setHeader headerName="HTTP_METHOD" id="setHttpMethod">
+                        <constant>POST</constant>
+                    </setHeader>
+                    <setHeader headerName="CONTENT_TYPE" id="setContentType">
+                        <constant>text/xml</constant>
+                    </setHeader>
+                    <convertBodyTo charset="utf-8"
+                        id="convertByteStream" type="java.lang.byte[]"/>
+                    <setHeader headerName="requestType" id="Targetreq">
+                        <simple>Target Request</simple>
+                    </setHeader>
+                    <to id="_to1" pattern="InOnly" uri="seda:losBrelnIntgration"/>
+                    <to id="callQSRService" pattern="InOut" uri="{{BreEndPoint}}"/>
+                    <convertBodyTo id="_convertBodyTo1" type="java.lang.String"/>
+                    <setHeader headerName="requestType" id="targetres">
+                        <simple>Target Response</simple>
+                    </setHeader>
+                    <to id="responseurl" pattern="InOnly" uri="seda:losBrelnIntgration"/>
+                    <marshal id="marshal_Response" ref="jsonxmlWithoutOptions"/>
+                    <setHeader headerName="ErrorCode" id="setErrorCode">
+                        <jsonpath>$.Envelope.Body.executeResponse.executeReturn.errorCode</jsonpath>
+                    </setHeader>
+                    <setBody id="setStrategyOneReponseBody">
+                        <jsonpath>$.Envelope.Body.executeResponse.executeReturn.message</jsonpath>
+                    </setBody>
+                    <choice id="_choice1">
+                        <when id="StrategyOneError">
+                            <simple>${in.header.ErrorCode} != 0 </simple>
+                            <to id="TransformQSRToLOSError" uri="xslt:./XSLT/LosErrorResponse.xsl"/>
+                            <setHeader headerName="status1" id="succses">
+                                <simple>error</simple>
+                            </setHeader>
+                            <setHeader headerName="requestType" id="target">
+                                <simple>Source Response</simple>
+                            </setHeader>
+                            <marshal id="marshal_LosResponse" ref="LosResponse"/>
+                            <to id="success" pattern="InOnly" uri="seda:losBrelnIntgration"/>
+                        </when>
+                        <otherwise id="StrategyOneSuccess">
+                            <to id="TransformQSRToLOSSuccess" uri="xslt:./XSLT/LosBREResponse.xsl"/>
+                            <setHeader headerName="status1" id="succses">
+                                <simple>success</simple>
+                            </setHeader>
+                            <marshal id="marshal_LosResponse" ref="LosResponse"/>
+                            <unmarshal id="_unmarshal1" ref="jsonOrder"/>
+                            <process id="_process1" ref="arr"/>
+                            <marshal id="_marshal1" ref="jsonOrder"/>
+                            <process id="enrichHeaderJson" ref="EnrichJSON"/>
+                            <setHeader headerName="requestType" id="Request">
+                                <simple>Source Response</simple>
+                            </setHeader>
+                            <to id="success" pattern="InOnly" uri="seda:losBrelnIntgration"/>
+                        </otherwise>
+                    </choice>
+                </otherwise>
+            </choice>
+            <onException id="HandleException" useOriginalMessage="true">
+                <exception>java.lang.Exception</exception>
+                <handled>
+                    <constant>true</constant>
+                </handled>
+                <setProperty id="_setProperty1" propertyName="ErrorOccured">
+                    <constant>yes</constant>
+                </setProperty>
+                <setProperty id="setExpMsg" propertyName="ExpMsg">
+                    <simple>${exception.message}</simple>
+                </setProperty>
+                <process id="processErrorResp" ref="ErrorAckProcessor"/>
+                <marshal id="MarshalErrorResponse">
+                    <json library="Jackson" prettyPrint="true"/>
+                </marshal>
+                <setHeader headerName="status1" id="error">
+                    <simple>error</simple>
+                </setHeader>
+                <to id="success" pattern="InOnly" uri="seda:losBrelnIntgration"/>
+            </onException>
+        </route>
+        <route id="_route1">
+            <from id="_from1" uri="seda:losBrelnIntgration"/>
+            <setBody id="_setBody2">
+                <simple>{"txnid":"${exchangeProperty.esbtxnid}","source":"${exchangeProperty.esbsource}","timestamp":"${date:now:dd-yyyy-MM HH-mm-ss}","Type":"${header.requestType}","Payload":${body},"status":"${header.status1}"}</simple>
+            </setBody>
+            <!-- <bean id="logg" method="getLog('${body}')" ref="getlog"/> -->
+            <log id="_log1" message="${body}"/>
+        </route>
+    </camelContext>
+</blueprint>

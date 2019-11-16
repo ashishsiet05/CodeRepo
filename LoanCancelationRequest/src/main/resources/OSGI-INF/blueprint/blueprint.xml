@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd            http://camel.apache.org/schema/blueprint/cxf  http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd">
+    <cm:property-placeholder persistent-id="CCAConnection" update-strategy="reload"/>
+    <!-- Rest Service endpoint declaration -->
+    <cxf:rsServer address="${ReceiveloancancelationRequest}"
+        id="loancancelationRestPoint" serviceClass="com.magma.loancancelation.LoanCancelationRequestService"/>
+    <!-- JDBC Datasource connection declaration -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="CCAUATDBConnection">
+        <property name="driverClassName" value="oracle.jdbc.driver.OracleDriver"/>
+        <property name="url" value="${CCAJDBCURL}"/>
+        <property name="username" value="${Username}"/>
+        <property name="password" value="${Password}"/>
+        <property name="validationQuery" value="select 1 from dual"/>
+        <property name="testOnBorrow" value="true"/>
+    </bean>
+    <!-- configure the Camel SQL component to use the JDBC data source -->
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="CCAUATDBConnection"/>
+    </bean>
+    <!-- Bean Declarations -->
+    <bean class="com.magma.loancancelation.ErrorAcknowledger" id="ErrorAckProcessor"/>
+    <camelContext id="loancancelation" xmlns="http://camel.apache.org/schema/blueprint" useMDCLogging="true">
+        <!-- Data formats Declarations -->
+        <dataFormats>
+            <json id="json" library="Jackson"/>
+        </dataFormats>
+        <!-- -->
+        <route autoStartup="true" id="loancancelationRoute">
+            <from id="loancancelationRequest" uri="cxfrs:bean:loancancelationRestPoint"/>
+            <setHeader headerName="requestType" id="Request">
+                <simple>Source Request</simple>
+            </setHeader>
+            <setProperty id="Propertyesbtxnid" propertyName="esbtxnid">
+                <simple>${header.esb-txnid}</simple>
+            </setProperty>
+            <setHeader headerName="esbtxnid" id="setHeadtxnid">
+                <simple>${header.esb-txnid}</simple>
+            </setHeader>
+            <setProperty id="Propertyesbsource" propertyName="esbsource">
+                <simple>${header.esb-source}</simple>
+            </setProperty>
+            <to id="_to1" pattern="InOnly" uri="seda:loancancelationLog"/>
+            <to id="validateheader" uri="direct-vm:processHeader"/>
+            <choice id="headerProcessing">
+                <when id="Missingheader">
+                    <simple>${header.Error} == 'MissingHeader'</simple>
+                </when>
+                <otherwise id="SuccessPath">
+                    <unmarshal id="UnamarshalRequest" ref="json"/>
+                    <to id="InsertDisburseDetail" uri="sql:insert into NAVODAY_STAGING.TB_LOS_LOAN_CANCEL_REQUEST (ESB_REF_NO,COMP_CODE,DIVISION_CODE,PROPOSAL_NO,CANCEL_REASON_ID) values (:#esbtxnid,:#compCd,:#divCd,:#propNo,:#cancelReasonId)?dataSource=#CCAUATDBConnection"/>
+                    <setBody id="responseBody">
+                        <simple>{"txnid":"${exchangeProperty.esbtxnid}","status":"request inserted successfully"}</simple>
+                    </setBody>
+                    <setProperty id="SResp" propertyName="requestType">
+                        <simple>Source Response</simple>
+                    </setProperty>
+                    <setHeader headerName="status1" id="succses1">
+                        <simple>success</simple>
+                    </setHeader>
+                    <to id="success" pattern="InOnly" uri="seda:loancancelationLog"/>
+                </otherwise>
+            </choice>
+            <onException id="HandleException" useOriginalMessage="true">
+                <exception>java.lang.Exception</exception>
+                <handled>
+                    <constant>true</constant>
+                </handled>
+                <setProperty id="_setProperty1" propertyName="ErrorOccured">
+                    <constant>yes</constant>
+                </setProperty>
+                <setProperty id="setExpMsg" propertyName="ExpMsg">
+                    <simple>${exception.message}</simple>
+                </setProperty>
+                <process id="processErrorResp" ref="ErrorAckProcessor"/>
+                <marshal id="MarshalErrorResponse">
+                    <json library="Jackson" prettyPrint="true"/>
+                </marshal>
+                <convertBodyTo id="ErrorReponse" type="java.lang.String"/>
+                <setHeader headerName="status1" id="error">
+                    <simple>error</simple>
+                </setHeader>
+                <setProperty id="_setProperty2" propertyName="requestType">
+                    <simple>Source Response</simple>
+                </setProperty>
+                <to id="success" pattern="InOnly" uri="seda:loancancelationLog"/>
+            </onException>
+        </route>
+        <route id="_route1">
+            <from id="_from1" uri="seda:loancancelationLog"/>
+            <setBody id="_setBody2">
+                <simple>{"txnid":"${exchangeProperty.esbtxnid}","source":"${exchangeProperty.esbsource}","timestamp":"${date:now:dd-yyyy-MM HH-mm-ss}","Type":"${header.requestType}","Payload":${body},"status":"${header.status1}"}</simple>
+            </setBody>
+            <log id="_log1" message="${body}"/>
+        </route>
+    </camelContext>
+</blueprint>

@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd          http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd          http://camel.apache.org/schema/blueprint/cxf  http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd">
+    <!-- Property file -->
+    <cm:property-placeholder persistent-id="POCConnections" update-strategy="reload">
+    </cm:property-placeholder>
+    <!-- Rest Service endpoint declaration -->
+    <cxf:rsServer address="${ReceiveFIAllocationRequest}"
+        id="FIAllocationRestEndpoint" serviceClass="com.magma.FIAllocation.FIAllocationRestService"/>
+    <!-- JDBC Datasource connection declaration -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="POCUATDBConnection">
+        <property name="driverClassName" value="oracle.jdbc.driver.OracleDriver"/>
+        <property name="url" value="${POCJDBCURL}"/>
+        <property name="username" value="${Username}"/>
+        <property name="password" value="${Password}"/>
+        <property name="validationQuery" value="select 1 from dual"/>
+        <property name="testOnBorrow" value="true"/>
+    </bean>
+    <!-- configure the Camel SQL component to use the JDBC data source -->
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="POCUATDBConnection"/>
+    </bean>
+    <bean
+        class="org.springframework.jdbc.datasource.DataSourceTransactionManager" id="txManager">
+        <property name="dataSource" ref="POCUATDBConnection"/>
+    </bean>
+    <bean class="org.apache.camel.spring.spi.SpringTransactionPolicy" id="required">
+        <property name="transactionManager" ref="txManager"/>
+        <property name="propagationBehaviorName" value="PROPAGATION_REQUIRED"/>
+    </bean>
+    <!-- Bean Declarations -->
+    <bean class="com.magma.FIAllocation.ErrorAcknowledger" id="ErrorAckProcessor"/>
+    <bean class="com.magma.FIAllocation.FIAllocationAckProcessor" id="ResponseProcessor"/>
+    <bean class="com.magma.FIAllocation.GetLog" id="getlog"/>
+    <!-- Camel Context Implementation -->
+    <camelContext id="FIAllocation" useMDCLogging="true" xmlns="http://camel.apache.org/schema/blueprint">
+        <!-- Data Format Declaration -->
+        <dataFormats>
+            <json id="json" library="Jackson"/>
+        </dataFormats>
+        <route autoStartup="true" id="FIAllocationRoute" startupOrder="1">
+            <from id="ReceiveFIAllocationRequest" uri="cxfrs:bean:FIAllocationRestEndpoint"/>
+            <transacted id="transacteddb" ref="required"/>
+            <convertBodyTo id="_convertBodyTo1" type="java.lang.String"/>
+            <setHeader headerName="requestType" id="Request">
+                <simple>Source Request</simple>
+            </setHeader>
+            <setProperty id="Propertyesbtxnid" propertyName="esbtxnid">
+                <simple>${header.esb-txnid}</simple>
+            </setProperty>
+            <setProperty id="Propertyesbsource" propertyName="esbsource">
+                <simple>${header.esb-source}</simple>
+            </setProperty>
+            <setHeader headerName="esbtxnid" id="_setHeader1">
+                <simple>${header.esb-txnid}</simple>
+            </setHeader>
+            <to id="_to1" pattern="InOnly" uri="seda:FlAllcationlog"/>
+            <to id="validateheader" uri="direct-vm:processHeader"/>
+            <choice id="headerProcessing">
+                <when id="Missingheader">
+                    <simple>${header.Error} == 'MissingHeader'</simple>
+                    <setProperty id="SResp" propertyName="requestType">
+                        <simple>Source Response</simple>
+                    </setProperty>
+                </when>
+                <otherwise id="SuccessPath">
+                    <choice id="OperationName">
+                        <when id="FIAllocation">
+                            <simple>${in.header.OperationName} == 'fiAllocation'</simple>
+                            <unmarshal id="_unmarshal1" ref="json"/>
+                            <setBody id="_setBody1">
+                                <simple>${body[requestdata]}</simple>
+                            </setBody>
+                            <setHeader headerName="Createddate" id="_setHeader2">
+                                <simple>${date:now:dd-MMM-yy}</simple>
+                            </setHeader>
+                            <split id="SplitEachRecord" stopOnException="true">
+                                <simple>${body}</simple>
+                                <to id="InsertPOC" uri="sql:Insert into VW_FI_REQUEST (BATCH_NO,COMP_CODE,ENQ_NO,SL_NO,DIVISION_CODE,ENQ_DATE,LOCATION_CODE,PARTY_NAME,PARTY_TYPE,ADDRESS_TYPE,ADDRESS,LANDMARK,CONTACT_MOBILE,TELE1,TELE2,SFI_ACCEPTANCE,PIN,REQD_AMT,ASSET_DETAILS,ASSET_CATEGORY_NAME,LOCALITY_CODE,LOCALITY_NAME,DISTRICT_CODE,DISTRICT_NAME,SUB_DISTRICT_CODE,SUB_DISTRICT_NAME,STATE_CODE,STATE_NAME,FATHER_HUSBAND,SALESMAN_CODE,SELF_FI_FLAG,SELF_FI_DATE,SELF_FI_TIME,GUARANTOR_SL_NO,FI_ADDRESS_ID,SCHEME_CODE,REALLOCATION_FLAG,CREATED_ON) values (:#BatchNo,:#CompCde,:#EnqNo,:#SlNo,:#DvsnCde,:#EnqDt,:#LctnCde,:#PrtyNm,:#PrtyTyp,:#AddrssTyp,:#AddrssLn,:#Lndmrk,:#CntctMbl,:#Tele1,:#Tele2,:#SFIAccptnc,:#Pincde,:#RqrdAmnt,:#AsstDtls,:#AsstCtgryNm,:#LcltyCde,:#LcltyNm,:#DstrctCde,:#DstrctNm,:#SbDstrctCde,:#SbDstrctNm,:#StateCde,:#StateNm,:#FthrHsbnd,:#SlsmnCde,:#SelfFiFlg,:#SelfFiDt,:#SelfFiTm,:#GuarantorSlNo,:#FiAddrssID,:#SchemeCde,:#AlloctnFlg,:#Createddate)?dataSource=POCUATDBConnection"/>
+                            </split>
+                            <log id="LogStep" message="requested Insterted successfully"/>
+                            <setProperty id="setProcessedFlag" propertyName="ProcessedFlag">
+                                <constant>yes</constant>
+                            </setProperty>
+                            <process id="ProcessAllocationResponse" ref="ResponseProcessor"/>
+                            <marshal id="MarshalAllocationResponse">
+                                <json library="Jackson" prettyPrint="true"/>
+                            </marshal>
+                            <convertBodyTo id="ConvertFiAllocResp" type="java.lang.String"/>
+                            <setProperty id="SResp" propertyName="requestType">
+                                <simple>Source Response</simple>
+                            </setProperty>
+                            <setHeader headerName="status1" id="succses">
+                                <simple>success</simple>
+                            </setHeader>
+                        </when>
+                        <when id="FIDeletion">
+                            <simple>${in.header.OperationName} == 'fiDeletion'</simple>
+                            <setHeader headerName="batchNo" id="_setHeader1">
+                                <jsonpath>$.batchNo</jsonpath>
+                            </setHeader>
+                            <setHeader headerName="EnqNo" id="_setHeader2">
+                                <jsonpath>$.loanApplicationID</jsonpath>
+                            </setHeader>
+                            <setHeader headerName="slNo" id="_setHeader3">
+                                <jsonpath>$.slNo</jsonpath>
+                            </setHeader>
+                            <setBody id="setDeletQuery">
+                                <simple>delete from vw_fi_request where batch_no='${in.header.batchNo}' and ENQ_NO='${in.header.EnqNo}' and SL_NO='${in.header.slNo}'</simple>
+                            </setBody>
+                            <to id="DeletePOC" uri="jdbc:POCUATDBConnection"/>
+                            <setProperty id="setProcessedFlag" propertyName="ProcessedFlag">
+                                <constant>yes</constant>
+                            </setProperty>
+                            <process id="ProcessDeletionResponse" ref="ResponseProcessor"/>
+                            <marshal id="MarshalDeletionResponse">
+                                <json library="Jackson" prettyPrint="true"/>
+                            </marshal>
+                            <convertBodyTo id="convertFiDeletionResp" type="java.lang.String"/>
+                            <setProperty id="SResp" propertyName="requestType">
+                                <simple>Source Response</simple>
+                            </setProperty>
+                            <setHeader headerName="status1" id="succses12">
+                                <simple>success</simple>
+                            </setHeader>
+                            <to id="success" pattern="InOnly" uri="seda:FlAllcationlog"/>
+                        </when>
+                    </choice>
+                </otherwise>
+            </choice>
+            <onException id="HandleException" useOriginalMessage="true">
+                <exception>java.lang.Exception</exception>
+                <handled>
+                    <constant>true</constant>
+                </handled>
+                <setProperty id="setErrorFlag" propertyName="ErrorOccured">
+                    <constant>yes</constant>
+                </setProperty>
+                <setProperty id="setExpMsg" propertyName="ExpMsg">
+                    <simple>${exception.message}</simple>
+                </setProperty>
+                <process id="processErrorResp" ref="ErrorAckProcessor"/>
+                <marshal id="MarshalErrorResponse">
+                    <json library="Jackson" prettyPrint="true"/>
+                </marshal>
+                <convertBodyTo id="ErrorReponse" type="java.lang.String"/>
+                <setProperty id="SResp" propertyName="requestType">
+                    <simple>Source Response</simple>
+                </setProperty>
+                <setHeader headerName="status1" id="succses123">
+                    <simple>error</simple>
+                </setHeader>
+                <to id="success" pattern="InOnly" uri="seda:FlAllcationlog"/>
+                <rollback id="rollback" markRollbackOnly="true" message="transaction was rollback successfully"/>
+            </onException>
+        </route>
+        <route id="_route1">
+            <from id="_from1" uri="seda:FlAllcationlog"/>
+            <setBody id="_setBody2">
+                <simple>{"txnid":"${exchangeProperty.esbtxnid}","source":"${exchangeProperty.esbsource}","timestamp":"${date:now:dd-yyyy-MM HH-mm-ss}","Type":"${header.requestType}","Payload":${body},"status":"${header.status1}"}</simple>
+            </setBody>
+            <!-- <bean id="_bean1" method="getLog('${body}')" ref="getlog"/> -->
+            <log id="_log1" message="${body}"/>
+        </route>
+    </camelContext>
+</blueprint>

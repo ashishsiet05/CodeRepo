@@ -1,0 +1,4 @@
+com\magma\PRCancelationRequestStatus\ErrorResponse.class
+com\magma\PRCancelationRequestStatus\ConvertDbDate.class
+com\magma\PRCancelationRequestStatus\PRCancelationRequestStatusRestService.class
+com\magma\PRCancelationRequestStatus\ErrorAcknowledger.class

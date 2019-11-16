@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd                 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd                 http://camel.apache.org/schema/blueprint/cxf  http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd">
+    <cm:property-placeholder persistent-id="CCAConnection" update-strategy="reload"/>
+    <!-- Rest Service endpoint declaration -->
+    <cxf:rsServer address="${ReceiveSoaGenerationRequest}"
+        id="SoaGenerationRestEndpoint" serviceClass="com.magma.soaGeneration.SoaGenerationRestService"/>
+    <!-- Webservice Endpoint -->
+    <cxf:cxfEndpoint
+        address="{{CCASoagenrationUrl}}"
+        id="SoaGenerationSoapEndpoint" serviceClass="services.RunReport" wsdlURL="wsdl/SOA_Genaration.wsdl"/>
+    <bean class="com.magma.soaGeneration.ErrorAcknowledger" id="ErrorAckProcessor"/>
+    <bean class="com.magma.soaGeneration.SoaRequestProcessor" id="RequestProcessor"/>
+    <bean class="com.magma.soaGeneration.SoaResponseProcessor" id="ResponseProcessor"/>
+    <bean class="com.magma.soaGeneration.GetLog" id="getlog"/>
+    <camelContext id="SoaGeneration" xmlns="http://camel.apache.org/schema/blueprint" useMDCLogging="true">
+        <dataFormats>
+            <json id="json" library="Jackson"/>
+        </dataFormats>
+        <route autoStartup="true" id="SoaGenerationRoute" startupOrder="1">
+            <from id="ReceiveSOAGenerationRequest" uri="cxfrs:bean:SoaGenerationRestEndpoint"/>
+            <setProperty id="SReq" propertyName="requestType">
+                <simple>Source Request</simple>
+            </setProperty>
+            <setProperty id="Propertyesbtxnid" propertyName="esbtxnid">
+                <simple>${header.esb-txnid}</simple>
+            </setProperty>
+            <setProperty id="Propertyesbsource" propertyName="esbsource">
+                <simple>${header.esb-source}</simple>
+            </setProperty>
+            <to id="logSReq" pattern="InOnly" uri="seda:SoaGenerationLog"/>
+            <to id="validateheader" uri="direct-vm:processHeader"/>
+            <choice id="headerProcessing">
+                <when id="Missingheader">
+                    <simple>${header.Error} == 'MissingHeader'</simple>
+                </when>
+                <otherwise id="SuccessPath">
+                    <convertBodyTo id="_convertBodyTo1" type="java.lang.String"/>
+                    <setHeader headerName="repId" id="_setHeader1">
+                        <jsonpath resultType="java.lang.String">$.repId</jsonpath>
+                    </setHeader>
+                    <setHeader headerName="prNo" id="_setHeader2">
+                        <jsonpath resultType="java.lang.String">$.prNo</jsonpath>
+                    </setHeader>
+                    <setHeader headerName="operationName" id="setOperationName">
+                        <constant>getCCA_Report</constant>
+                    </setHeader>
+                    <setHeader headerName="operationNameSpace" id="SetOperationNameSpace">
+                        <constant>http://services</constant>
+                    </setHeader>
+                    <process id="ProcessRequest" ref="RequestProcessor"/>
+                    <to id="WebserviceCall" pattern="InOut" uri="cxf:bean:SoaGenerationSoapEndpoint"/>
+                    <process id="ProcessResponse" ref="ResponseProcessor"/>
+                    <log id="_log1" message="Response body is ${body}"/>
+                    <setProperty id="_setProperty4" propertyName="ccaReport">
+                        <simple>${in.body.getGetCCAReportReturn().getGetReportCCA()}</simple>
+                    </setProperty>
+                    <setProperty id="_setProperty4" propertyName="ccaError">
+                        <simple>${in.body.getGetCCAReportReturn().getError()}</simple>
+                    </setProperty>
+                    <setBody id="_setBody1">
+                        <simple>{"txnid":"${header.esb-txnid}","ccaError":"${exchangeProperty.ccaError}","ccaReport":"${exchangeProperty.ccaReport}"}</simple>
+                    </setBody>
+                    <convertBodyTo id="_convertBodyTo2" type="java.lang.String"/>
+                    <setProperty id="SResp" propertyName="requestType">
+                        <simple>Source Response</simple>
+                    </setProperty>
+                    <setHeader headerName="ResponseStatus" id="succses">
+                        <simple>Success</simple>
+                    </setHeader>
+                    <to id="logSResp" pattern="InOnly" uri="seda:SoaGenerationLog"/>
+                </otherwise>
+            </choice>
+            <onException id="HandleException" useOriginalMessage="true">
+                <exception>java.lang.Exception</exception>
+                <handled>
+                    <constant>true</constant>
+                </handled>
+                <setProperty id="_setProperty1" propertyName="ErrorOccured">
+                    <constant>yes</constant>
+                </setProperty>
+                <setProperty id="setExpMsg" propertyName="ExpMsg">
+                    <simple>${exception.message}</simple>
+                </setProperty>
+                <process id="processErrorResp" ref="ErrorAckProcessor"/>
+                <marshal id="MarshalErrorResponse">
+                    <json library="Jackson" prettyPrint="true"/>
+                </marshal>
+                <convertBodyTo id="ErrorReponse" type="java.lang.String"/>
+                <setProperty id="SEResp" propertyName="requestType">
+                    <simple>Source Response</simple>
+                </setProperty>
+                <setHeader headerName="ResponseStatus" id="succses">
+                    <simple>Failure</simple>
+                </setHeader>
+                <to id="logSEResp" pattern="InOnly" uri="seda:SoaGenerationLog"/>
+            </onException>
+        </route>
+        <!-- Logger Route -->
+        <route id="loggerRoute">
+            <from id="GetLogRequest" uri="seda:SoaGenerationLog"/>
+            <setBody id="setLogBody">
+                <simple>{"txnid":"${exchangeProperty.esbtxnid}","source":"${exchangeProperty.esbsource}","timestamp":"${date:now:dd-yyyy-MM HH-mm-ss}","type":"${exchangeProperty.requestType}","payload":${body},"status":"${header.ResponseStatus}"}</simple>
+            </setBody>
+            <!-- <bean id="CallLoggerBean" method="getLog('${body}')" ref="getlog"/> -->
+            <log id="_log2" message="${body}"/>
+        </route>
+    </camelContext>
+</blueprint>

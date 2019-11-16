@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+	xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+	xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd  
+	 http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd">
+	
+	 <cm:property-placeholder
+		persistent-id="CCAConnection" update-strategy="reload">
+		<cm:default-properties>
+			<cm:property name="ReceivePRDisbursment"
+				value="http://localhost:9909/rest/CCA/PRD" />
+			<cm:property name="CCAJDBCURL"
+				value="jdbc:oracle:thin:@172.17.6.71:1521:ORADEV" />
+			<cm:property name="Username" value="KULIZACONNECT"/>
+			<cm:property name="Password" value="KULIZACONNECT" />
+		</cm:default-properties>
+	</cm:property-placeholder>
+	<!-- Rest Service endpoint declaration -->
+	<cxf:rsServer address="${ReceivePRDisbursment}"
+		id="PRDisbursmentRequestRestEndpoint"
+		serviceClass="com.magma.prdisbursmentrequest.PrdisbursmentRequestRestService"/>
+	<!-- JDBC Datasource connection declaration -->
+	<bean class="org.apache.commons.dbcp.BasicDataSource"
+		destroy-method="close" id="CCAUATDBConnection">
+		<property name="driverClassName"
+			value="oracle.jdbc.driver.OracleDriver" />
+		<property name="url" value="${CCAJDBCURL}" />
+		<property name="username" value="${Username}" />
+		<property name="password" value="${Password}" />
+		<property name="validationQuery" value="select 1 from dual" />
+		<property name="testOnBorrow" value="true" />
+	</bean>
+	<!-- configure the Camel SQL component to use the JDBC data source -->
+	<bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+		<property name="dataSource" ref="CCAUATDBConnection" />
+	</bean>
+	<bean
+        class="org.springframework.jdbc.datasource.DataSourceTransactionManager" id="txManager">
+        <property name="dataSource" ref="CCAUATDBConnection"/>
+    </bean>
+    <bean id="required" class="org.apache.camel.spring.spi.SpringTransactionPolicy">
+     <property name="transactionManager" ref="txManager"/>
+     <property name="propagationBehaviorName" value="PROPAGATION_REQUIRED"/> </bean>
+	<!-- Bean Declarations -->
+	<bean class="com.magma.prdisbursmentrequest.ErrorAcknowledger"
+		id="ErrorAckProcessor" />
+		<bean id="getlog" class="com.magma.prdisbursmentrequest.GetLog"/>
+	
+	</blueprint>

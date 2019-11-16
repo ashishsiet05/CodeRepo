@@ -1,0 +1,3 @@
+com\magma\pushCustomerRejection\CustomerRejectionRestService.class
+com\magma\pushCustomerRejection\ErrorAcknowledger.class
+com\magma\pushCustomerRejection\ErrorResponse.class

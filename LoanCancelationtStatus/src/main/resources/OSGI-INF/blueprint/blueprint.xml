@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0"
+    xmlns:cm="http://aries.apache.org/blueprint/xmlns/blueprint-cm/v1.1.0"
+    xmlns:cxf="http://camel.apache.org/schema/blueprint/cxf"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.osgi.org/xmlns/blueprint/v1.0.0 https://www.osgi.org/xmlns/blueprint/v1.0.0/blueprint.xsd            http://camel.apache.org/schema/blueprint http://camel.apache.org/schema/blueprint/camel-blueprint.xsd            http://camel.apache.org/schema/blueprint/cxf  http://camel.apache.org/schema/blueprint/cxf/camel-cxf.xsd">
+    <cm:property-placeholder persistent-id="CCAConnection" update-strategy="reload"/>
+    <!-- Rest Service endpoint declaration -->
+    <!-- JDBC Datasource connection declaration -->
+    <bean class="org.apache.commons.dbcp.BasicDataSource"
+        destroy-method="close" id="CCAUATDBConnection">
+        <property name="driverClassName" value="oracle.jdbc.driver.OracleDriver"/>
+        <property name="url" value="${CCAJDBCURL}"/>
+        <property name="username" value="${Username}"/>
+        <property name="password" value="${Password}"/>
+        <property name="validationQuery" value="select 1 from dual"/>
+        <property name="testOnBorrow" value="true"/>
+    </bean>
+    <!-- configure the Camel SQL component to use the JDBC data source -->
+    <bean class="org.apache.camel.component.sql.SqlComponent" id="sql">
+        <property name="dataSource" ref="CCAUATDBConnection"/>
+    </bean>
+    <!-- Bean Declarations -->
+    <bean class="com.magma.loancancelation.ConvertDbDate" id="epochtoDate"/>
+    <camelContext id="loancancelationStatus" useMDCLogging="true" xmlns="http://camel.apache.org/schema/blueprint">
+        <!-- Data formats Declarations -->
+        <dataFormats>
+            <json id="json" library="Jackson"/>
+        </dataFormats>
+        <!-- -->
+        <route autoStartup="true" id="loancancelationStatusRoute">
+            <from id="loancancelationStatus" uri="timer://loancancelation?period={{TimeDiff}}"/>
+            <to id="select" uri="sql:{{SqlCancelQuery}}?dataSource=#CCAUATDBConnection"/>
+            <log id="_log3" message=" Database Result === ${body}"/>
+            <choice id="_choice1">
+                <when id="_when1">
+                    <simple>${body} != '[]'</simple>
+                    <setProperty id="_setProperty1" propertyName="OriginalBody">
+                        <simple>${body}</simple>
+                    </setProperty>
+                    <!-- <removeHeaders id="_removeHeaders2" pattern="*"/> -->
+                    <setHeader headerName="CamelHttpMethod" id="_setHeader1">
+                        <constant>POST</constant>
+                    </setHeader>
+                    <setHeader headerName="Content-Type" id="_setHeader2">
+                        <simple>application/json</simple>
+                    </setHeader>
+                    <setBody id="_setBody3">
+                        <simple>{{AccessTokenCanRequest}}</simple>
+                    </setBody>
+                    <to id="_to22" uri="{{AccessTokenCan.URI}}?throwExceptionOnFailure=false"/>
+                    <setProperty id="_setProperty2" propertyName="AccessToken">
+                        <jsonpath resultType="java.lang.String" suppressExceptions="true">$.data.access_token</jsonpath>
+                    </setProperty>
+                    <setBody id="_setBody1">
+                        <simple>${exchangeProperty.OriginalBody}</simple>
+                    </setBody>
+                    <split id="_split1">
+                        <simple>${body}</simple>
+                        <choice id="_choice2">
+                            <when id="_when2">
+                                <simple>${body[DIVISION_CODE]} == '000016'</simple>
+                                <setHeader headerName="PropNumber" id="_setHeader4">
+                                    <simple>${body[PROPOSAL_NO]}</simple>
+                                </setHeader>
+                                <setHeader headerName="DivCode" id="_setHeader5">
+                                    <simple>${body[DIVISION_CODE]}</simple>
+                                </setHeader>
+                                <process id="_bean1" ref="epochtoDate"/>
+                                <setHeader headerName="Authorization" id="_setHeader3">
+                                    <simple>Bearer ${exchangeProperty.AccessToken}</simple>
+                                </setHeader>
+                                <setBody id="_setBody2">
+                                    <simple>{"proposalNumber" :"${body[PROPOSAL_NO]}","cancelDate" :"${header.canceldate}"}</simple>
+                                </setBody>
+                                <log id="_log1" message="LOSAPI Request ==  ${body}"/>
+                                <log id="_log5" message="calling SME service ${body}"/>
+                                <to id="_to1" uri="{{LosSmeApi.URI}}?throwExceptionOnFailure=false"/>
+                                <convertBodyTo id="_convertBodyTo1" type="String"/>
+                                <log id="_log2" message="LOSAPI response === ${body}"/>
+                                <when id="statuscheck">
+                                    <jsonpath suppressExceptions="true">$[?(@.status == '200')]</jsonpath>
+                                    <setHeader headerName="losdate" id="_setHeader6">
+                                    <simple>${date:now:dd-MMM-yy}</simple>
+                                    </setHeader>
+                                        <setHeader headerName="updateCanQuery"><simple>update NAVODAY_STAGING.TB_LOS_LOAN_CANCEL_REQUEST set LOS_ACCEPTED_ON=to_date('${date:now:dd-MMM-yy}','DD-MON-RR') where DIVISION_CODE='${header.DivCode}' and PROPOSAL_NO='${header.PropNumber}'</simple></setHeader>
+                                        <log id="_updat" message=" updateing TB_LOS_LOAN_CANCEL_REQUEST table query ==${header.updateCanQuery}"/>
+                                    <toD id="_to2" uri="sql:${header.updateCanQuery}?dataSource=#CCAUATDBConnection"/>
+                                    <log id="_log4" message="Table updated successfully"/>
+                                </when>
+                            </when>
+                            <when id="_when3">
+                                <simple>${exchangeProperty.DivCode} == '000021'</simple>
+                                <log id="_log6" message="calling HFC service"/>
+                            </when>
+                            <otherwise id="_otherwise1">
+                                <log id="_log7" message="  Invalid Division Number == ${body[DIVISION_CODE]} "/>
+                            </otherwise>
+                        </choice>
+                    </split>
+                </when>
+                <otherwise id="_otherwise2">
+                    <log id="_log8" message="There is no data in database"/>
+                </otherwise>
+            </choice>
+             <onException id="HandleException" useOriginalMessage="true">
+                <exception>java.lang.Exception</exception>
+                <handled>
+                    <constant>true</constant>
+                </handled>
+                <log id="_log9" message="exception occured and exception is ${exception.message}"/>
+            </onException>
+        </route>
+    </camelContext>
+</blueprint>
